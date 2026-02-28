@@ -13,19 +13,17 @@ This is a BRF Laundry Booking System with a Python/FastAPI backend and a Vite/Al
 
 ### Important caveats
 
-- **`CSV_URL` must be unset for local dev/test**: The `CSV_URL` and `GITHUB_TOKEN` secrets may be injected into the environment. The backend startup handler (`load_rfid_cache`) will fail if `CSV_URL` points to an unreachable endpoint. Set `CSV_URL=""` when running the backend locally or running `pytest`.
-- **Seeding test data**: The SQLite DB (`app.db`) starts empty. To test login and booking, insert a test apartment and resource. Example:
+- **`CSV_URL` handling**: The `CSV_URL` and `GITHUB_TOKEN` secrets are injected into the environment. The backend converts `github.com` web URLs to GitHub API URLs automatically. When running `pytest`, set `CSV_URL=""` to skip RFID cache loading (tests use in-memory fixtures instead). When running the dev server, the real CSV_URL works fine if the token is valid.
+- **Seeding test data**: The SQLite DB (`app.db`) starts empty. Apartments are auto-created on RFID login. For resources, insert manually:
   ```python
   python3 -c "
-  import sqlite3, hashlib
+  import sqlite3
   conn = sqlite3.connect('app.db')
-  pw = hashlib.sha256('test123'.encode()).hexdigest()
-  conn.execute('INSERT OR IGNORE INTO apartments (id, password_hash, is_active) VALUES (?, ?, 1)', ('A101', pw))
   conn.execute('INSERT OR IGNORE INTO resources (id, name, booking_type, is_active, price_cents, is_billable) VALUES (1, \"Tvättstuga 1\", \"time-slot\", 1, 0, 0)')
   conn.commit(); conn.close()
   "
   ```
-  Then log in with user ID `A101` and password `test123`.
+  For POS mode, set `VITE_RFID_UID` to a real UID from the CSV (e.g., `00000003666340236` for apartment 1-LGH1013/1201).
 - **Backend tests**: Run `CSV_URL="" pytest` from the repo root. Tests use in-memory SQLite and override the DB dependency, so no seeding is needed.
 - **Frontend unit tests**: Run `npx vitest run --dir tests` in `frontend/`. The default `npm run test` / `npx vitest run` will also pick up Playwright spec files which causes an error; use `--dir tests` to scope to unit tests only.
 - **Frontend build**: `npm run build` in `frontend/`.
