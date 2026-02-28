@@ -165,6 +165,10 @@ Alpine.data("bookingApp", () => ({
     persistMode(this.mode);
     this.days = getUpcomingDays(FULL_DAY_COUNT);
     this.bindRfidListener();
+    if (!USE_MOCKS) {
+      const api = await getApi();
+      api.logBackendStatus?.();
+    }
   },
 
   get selectedResource() {

@@ -15,7 +15,7 @@ from .auth import (
     verify_password,
 )
 from .booking import admin_calendar, cancel_booking, create_booking, list_slots
-from .config import DATABASE_PATH, FRONTEND_ORIGINS
+from .config import CSV_URL, DATABASE_PATH, FRONTEND_ORIGINS, GITHUB_TOKEN
 from .db import create_connection, get_db, init_db
 from .models import row_to_dict
 from .resource_config import load_booking_objects
@@ -56,6 +56,12 @@ def startup() -> None:
         init_db(conn)
         load_rfid_cache()
         load_booking_objects(conn)
+        logger.info(
+            "Config CSV_URL=%s GITHUB_TOKEN=%s DATABASE_PATH=%s",
+            "set" if bool(CSV_URL) else "missing",
+            "set" if bool(GITHUB_TOKEN) else "missing",
+            DATABASE_PATH,
+        )
     finally:
         conn.close()
 
