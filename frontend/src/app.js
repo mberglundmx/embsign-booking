@@ -138,6 +138,9 @@ Alpine.data("bookingApp", () => ({
   userId: null,
   userIdInput: "",
   passwordInput: "",
+  rfidInput: "",
+  rfidBuffer: "",
+  rfidListenerBound: false,
   resources: [],
   bookings: [],
   days: [],
@@ -160,6 +163,7 @@ Alpine.data("bookingApp", () => ({
     this.mode = detectMode();
     persistMode(this.mode);
     this.days = getUpcomingDays(FULL_DAY_COUNT);
+    this.bindRfidListener();
   },
 
   get selectedResource() {
@@ -219,6 +223,33 @@ Alpine.data("bookingApp", () => ({
   setMode(mode) {
     this.mode = mode;
     persistMode(mode);
+    this.bindRfidListener();
+  },
+
+  bindRfidListener() {
+    if (this.rfidListenerBound) return;
+    window.addEventListener("keydown", (event) => {
+      if (!this.isPosMode || this.isAuthenticated) return;
+      if (event.key === "Enter") {
+        const value = this.rfidBuffer.trim() || this.rfidInput.trim();
+        this.rfidBuffer = "";
+        if (value) {
+          this.rfidInput = value;
+          this.submitRfidInput();
+        }
+        return;
+      }
+      if (event.key.length === 1) {
+        this.rfidBuffer += event.key;
+      }
+    });
+    this.rfidListenerBound = true;
+  },
+
+  async submitRfidInput() {
+    const value = this.rfidInput.trim();
+    if (!value) return;
+    await this.loginPos(value);
   },
 
   async selectResource(resourceId) {
@@ -244,14 +275,16 @@ Alpine.data("bookingApp", () => ({
     await this.refreshSlots();
   },
 
-  async loginPos() {
+  async loginPos(uidOverride = "") {
     this.loading = true;
     this.errorMessage = "";
     try {
       const api = await getApi();
-      const result = await api.loginWithRfid(DEMO_RFID_UID);
+      const uid = uidOverride || DEMO_RFID_UID;
+      const result = await api.loginWithRfid(uid);
       this.isAuthenticated = true;
       this.userId = result.apartment_id ?? result.userId ?? null;
+      this.rfidInput = "";
       await this.loadResources();
       await this.loadBookings();
       await this.refreshSlots();
