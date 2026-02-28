@@ -109,7 +109,16 @@ def list_resources(session=Depends(require_session), conn=Depends(get_db)):
     _ = session
     rows = conn.execute(
         """
-        SELECT id, name, booking_type, price_cents, is_billable
+        SELECT
+            id,
+            name,
+            booking_type,
+            slot_duration_minutes,
+            slot_start_hour,
+            slot_end_hour,
+            max_future_days,
+            price_cents,
+            is_billable
         FROM resources
         WHERE is_active = 1
         ORDER BY id ASC

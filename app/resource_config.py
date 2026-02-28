@@ -17,6 +17,8 @@ _BOOKING_TYPE_MAP = {
     "daily": "full-day",
     "full-day": "full-day",
 }
+_DURATION_PATTERN = re.compile(r"^\s*(\d+)\s*([hm])\s*$", re.IGNORECASE)
+_DAYS_PATTERN = re.compile(r"^\s*(\d+)\s*d\s*$", re.IGNORECASE)
 
 
 def _normalize_url(value: str | None) -> str | None:
@@ -85,6 +87,45 @@ def _price_cents_from_cost(cost: Any) -> int:
     return int(round(amount * 100))
 
 
+def _to_positive_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    if parsed <= 0:
+        return default
+    return parsed
+
+
+def _slot_duration_minutes(raw: Any) -> int:
+    if isinstance(raw, str):
+        match = _DURATION_PATTERN.match(raw)
+        if match:
+            amount = int(match.group(1))
+            unit = match.group(2).lower()
+            minutes = amount * 60 if unit == "h" else amount
+            return max(1, min(minutes, 24 * 60))
+    return _to_positive_int(raw, 60)
+
+
+def _max_future_days(raw: Any) -> int:
+    if isinstance(raw, str):
+        match = _DAYS_PATTERN.match(raw)
+        if match:
+            return max(1, int(match.group(1)))
+    return _to_positive_int(raw, 30)
+
+
+def _hour_in_range(value: Any, default: int, *, min_value: int, max_value: int) -> int:
+    try:
+        hour = int(value)
+    except (TypeError, ValueError):
+        return default
+    if hour < min_value or hour > max_value:
+        return default
+    return hour
+
+
 def _extract_bookable_objects(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, dict):
         objects = payload.get("bookable_objects")
@@ -146,12 +187,38 @@ def load_booking_objects(conn, config_url: str | None = None) -> int:
         booking_type = _map_booking_type(obj.get("type"))
         price_cents = _price_cents_from_cost(obj.get("cost"))
         is_billable = 1 if price_cents > 0 else 0
+        slot_duration_minutes = _slot_duration_minutes(obj.get("time"))
+        slot_start_hour = _hour_in_range(obj.get("start_time"), 6, min_value=0, max_value=23)
+        slot_end_hour = _hour_in_range(obj.get("end_time"), 22, min_value=1, max_value=24)
+        if slot_end_hour <= slot_start_hour:
+            slot_start_hour = 6
+            slot_end_hour = 22
+        max_future_days = _max_future_days(obj.get("max_future"))
         conn.execute(
             """
-            INSERT INTO resources (name, booking_type, is_active, price_cents, is_billable)
-            VALUES (?, ?, 1, ?, ?)
+            INSERT INTO resources (
+                name,
+                booking_type,
+                slot_duration_minutes,
+                slot_start_hour,
+                slot_end_hour,
+                max_future_days,
+                is_active,
+                price_cents,
+                is_billable
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
             """,
-            (name, booking_type, price_cents, is_billable),
+            (
+                name,
+                booking_type,
+                slot_duration_minutes,
+                slot_start_hour,
+                slot_end_hour,
+                max_future_days,
+                price_cents,
+                is_billable,
+            ),
         )
         existing_names.add(key)
         inserted += 1

@@ -75,6 +75,10 @@ function normalizeResources(resources) {
     id: resource.id,
     name: resource.name,
     bookingType: resource.booking_type ?? resource.bookingType ?? "time-slot",
+    maxAdvanceDays:
+      typeof resource.max_future_days === "number"
+        ? resource.max_future_days
+        : resource.maxAdvanceDays ?? FULL_DAY_COUNT,
     price:
       typeof resource.price_cents === "number"
         ? Math.round(resource.price_cents / 100)
@@ -110,9 +114,10 @@ function normalizeBookings(bookings) {
 function normalizeSlots(slots) {
   return slots.map((slot) => {
     if (slot.start_time) {
+      const label = formatTimeRange(slot.start_time, slot.end_time);
       return {
-        id: `${slot.start_time}-${slot.end_time}`,
-        label: formatTimeRange(slot.start_time, slot.end_time),
+        id: label,
+        label,
         startTime: slot.start_time,
         endTime: slot.end_time,
         isBooked: Boolean(slot.is_booked)

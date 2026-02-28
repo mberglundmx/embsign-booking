@@ -37,6 +37,10 @@ class ResourceItem(BaseModel):
     id: int
     name: str
     booking_type: str
+    slot_duration_minutes: int
+    slot_start_hour: int
+    slot_end_hour: int
+    max_future_days: int
     price_cents: int
     is_billable: bool
 
