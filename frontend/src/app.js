@@ -158,6 +158,7 @@ Alpine.data("bookingApp", () => ({
     message: "",
     price: 0
   },
+  errorTimeoutId: null,
 
   async init() {
     this.mode = detectMode();
@@ -277,7 +278,7 @@ Alpine.data("bookingApp", () => ({
 
   async loginPos(uidOverride = "") {
     this.loading = true;
-    this.errorMessage = "";
+    this.clearError();
     try {
       const api = await getApi();
       const uid = uidOverride || DEMO_RFID_UID;
@@ -289,14 +290,18 @@ Alpine.data("bookingApp", () => ({
       await this.loadBookings();
       await this.refreshSlots();
     } catch (error) {
-      this.errorMessage = "Kunde inte logga in via bricka.";
+      if (error?.status === 401) {
+        this.showError("Brickan är inte registrerad eller är inaktiv.");
+      } else {
+        this.showError("Backend kunde inte nås. Kontrollera anslutningen.");
+      }
     }
     this.loading = false;
   },
 
   async loginPassword() {
     this.loading = true;
-    this.errorMessage = "";
+    this.clearError();
     try {
       const api = await getApi();
       const result = await api.loginWithPassword(
@@ -309,8 +314,13 @@ Alpine.data("bookingApp", () => ({
       await this.loadBookings();
       await this.refreshSlots();
     } catch (error) {
-      this.errorMessage =
-        "Felaktigt användar-ID eller lösenord. Saknar du lösenord, registrera dig på POS.";
+      if (error?.status === 401) {
+        this.showError(
+          "Felaktigt användar-ID eller lösenord. Saknar du lösenord, registrera dig på POS."
+        );
+      } else {
+        this.showError("Backend kunde inte nås. Kontrollera anslutningen.");
+      }
     }
     this.loading = false;
   },
@@ -378,7 +388,7 @@ Alpine.data("bookingApp", () => ({
     if (!this.confirm.open) return;
     const { action, payload } = this.confirm;
     this.loading = true;
-    this.errorMessage = "";
+    this.clearError();
     try {
       const api = await getApi();
       if (action === "full-day") {
@@ -413,7 +423,7 @@ Alpine.data("bookingApp", () => ({
       await this.refreshSlots();
       this.closeConfirm();
     } catch (error) {
-      this.errorMessage = "Kunde inte slutföra åtgärden.";
+      this.showError("Kunde inte slutföra åtgärden.");
     } finally {
       this.loading = false;
     }
@@ -486,6 +496,25 @@ Alpine.data("bookingApp", () => ({
     this.selectedResourceId = this.resources[0]?.id ?? null;
     this.days = getUpcomingDays(this.getMaxAdvanceDays());
     this.timeSlotStartIndex = 0;
+  },
+
+  showError(message, timeoutMs = 3500) {
+    this.errorMessage = message;
+    if (this.errorTimeoutId) {
+      clearTimeout(this.errorTimeoutId);
+    }
+    this.errorTimeoutId = window.setTimeout(() => {
+      this.errorMessage = "";
+      this.errorTimeoutId = null;
+    }, timeoutMs);
+  },
+
+  clearError() {
+    if (this.errorTimeoutId) {
+      clearTimeout(this.errorTimeoutId);
+      this.errorTimeoutId = null;
+    }
+    this.errorMessage = "";
   }
 }));
 

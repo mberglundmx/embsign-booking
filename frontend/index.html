@@ -103,7 +103,6 @@
           </form>
         </template>
 
-        <p class="text-sm text-rose-600" x-show="errorMessage" x-text="errorMessage"></p>
       </section>
 
       <section class="flex flex-col gap-6" x-show="isAuthenticated" x-transition>
@@ -294,6 +293,17 @@
             OK
           </button>
         </div>
+      </div>
+    </div>
+
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+      x-show="errorMessage"
+      x-transition
+      data-testid="error-toast"
+    >
+      <div class="rounded-2xl bg-rose-600 px-8 py-6 text-xl font-semibold text-white shadow-xl">
+        <span x-text="errorMessage"></span>
       </div>
     </div>
 
