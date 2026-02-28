@@ -16,10 +16,7 @@ def github_url_to_api(url: str) -> str:
                 branch, _, filepath = branch_and_path.partition("/")
             else:
                 return url
-            return (
-                f"https://api.github.com/repos/{owner}/{repo}/contents/{filepath}"
-                f"?ref={branch}"
-            )
+            return f"https://api.github.com/repos/{owner}/{repo}/contents/{filepath}?ref={branch}"
         return url
     if parsed.hostname == "github.com":
         parts = parsed.path.strip("/").split("/")
@@ -32,18 +29,12 @@ def github_url_to_api(url: str) -> str:
             else:
                 branch = ref_parts[0]
                 filepath = "/".join(ref_parts[1:])
-            return (
-                f"https://api.github.com/repos/{owner}/{repo}/contents/{filepath}"
-                f"?ref={branch}"
-            )
+            return f"https://api.github.com/repos/{owner}/{repo}/contents/{filepath}?ref={branch}"
         if len(parts) >= 5 and parts[2] == "blob":
             owner, repo = parts[0], parts[1]
             branch = parts[3]
             filepath = "/".join(parts[4:])
-            return (
-                f"https://api.github.com/repos/{owner}/{repo}/contents/{filepath}"
-                f"?ref={branch}"
-            )
+            return f"https://api.github.com/repos/{owner}/{repo}/contents/{filepath}?ref={branch}"
     return url
 
 

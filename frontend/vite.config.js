@@ -15,6 +15,10 @@ export default defineConfig({
     allowedHosts: true
   },
   test: {
-    environment: "jsdom"
+    environment: "jsdom",
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"]
+    }
   }
 });
