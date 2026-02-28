@@ -1,8 +1,11 @@
+import logging
+
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .auth import (
+    RFID_CACHE,
     check_rate_limit,
     create_session,
     ensure_apartment,
@@ -18,7 +21,7 @@ from .booking import (
     create_booking,
     list_slots,
 )
-from .config import DATABASE_PATH, FRONTEND_ORIGINS
+from .config import CSV_URL, DATABASE_PATH, FRONTEND_ORIGINS, GITHUB_TOKEN
 from .db import create_connection, get_db, init_db
 from .models import row_to_dict
 from .resource_config import load_booking_objects
@@ -33,7 +36,13 @@ from .schemas import (
     ResourcesResponse,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+)
+
 app = FastAPI(title="BRF Laundry Booking")
+logger = logging.getLogger(__name__)
 
 origins = [origin.strip() for origin in FRONTEND_ORIGINS.split(",") if origin.strip()]
 if origins:
@@ -53,6 +62,12 @@ def startup() -> None:
         init_db(conn)
         load_rfid_cache()
         load_booking_objects(conn)
+        logger.info(
+            "Config CSV_URL=%s GITHUB_TOKEN=%s DATABASE_PATH=%s",
+            "set" if bool(CSV_URL) else "missing",
+            "set" if bool(GITHUB_TOKEN) else "missing",
+            DATABASE_PATH,
+        )
     finally:
         conn.close()
 
@@ -70,6 +85,7 @@ def require_session(
 @app.post("/rfid-login", response_model=LoginResponse)
 def rfid_login(payload: RFIDLoginRequest, response: Response, conn=Depends(get_db)):
     check_rate_limit()
+    logger.info("RFID login attempt uid=%s cache_size=%d", payload.uid, len(RFID_CACHE))
     entry = lookup_rfid(payload.uid)
     if entry is None or not entry.active:
         raise HTTPException(status_code=401, detail="invalid_rfid")
@@ -81,7 +97,7 @@ def rfid_login(payload: RFIDLoginRequest, response: Response, conn=Depends(get_d
     if row is None:
         raise HTTPException(status_code=401, detail="inactive_apartment")
     token = create_session(conn, entry.apartment_id, is_admin=False)
-    response.set_cookie("session", token, httponly=True, samesite="lax")
+    response.set_cookie("session", token, httponly=True, samesite="none", secure=True)
     return LoginResponse(booking_url="/booking", apartment_id=entry.apartment_id)
 
 
@@ -95,7 +111,7 @@ def mobile_login(payload: MobileLoginRequest, response: Response, conn=Depends(g
     if row is None or not verify_password(payload.password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="invalid_credentials")
     token = create_session(conn, payload.apartment_id, is_admin=False)
-    response.set_cookie("session", token, httponly=True, samesite="lax")
+    response.set_cookie("session", token, httponly=True, samesite="none", secure=True)
     return LoginResponse(booking_url="/booking", apartment_id=payload.apartment_id)
 
 

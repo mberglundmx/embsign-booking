@@ -1,6 +1,25 @@
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
+let healthLogged = false;
+
+export async function logBackendStatus() {
+  if (healthLogged) return;
+  healthLogged = true;
+  console.info("[backend] api_base=%s", API_BASE || "(same-origin)");
+  try {
+    const response = await fetch(`${API_BASE}/health`, { credentials: "include" });
+    if (!response.ok) {
+      console.warn("[backend] health check failed status=%s", response.status);
+      return;
+    }
+    console.info("[backend] health ok");
+  } catch (error) {
+    console.warn("[backend] health check failed", error);
+  }
+}
+
 async function request(path, options = {}) {
+  logBackendStatus();
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
     headers: {

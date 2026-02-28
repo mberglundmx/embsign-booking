@@ -113,6 +113,7 @@ def _build_apartment_id(house: str, skv_lgh: str) -> str:
 
 def load_rfid_cache() -> None:
     if not CSV_URL:
+        logger.warning("RFID CSV_URL not configured; cache not loaded")
         return
 
     try:

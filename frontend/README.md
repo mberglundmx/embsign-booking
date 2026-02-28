@@ -14,6 +14,10 @@ För backend-anslutning:
 - `VITE_RFID_UID` (demo-UID för POS-login)
 - `VITE_USE_MOCKS=true` för att köra med lokala mocks istället.
 
+RFID i POS-läge:
+- Skannern förväntas skriva som tangentbord och avslutas med Enter.
+- Du kan också klistra in kod i RFID-fältet och trycka Enter.
+
 ## Tester
 
 ```bash

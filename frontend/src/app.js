@@ -144,6 +144,9 @@ Alpine.data("bookingApp", () => ({
   userId: null,
   userIdInput: "",
   passwordInput: "",
+  rfidInput: "",
+  rfidBuffer: "",
+  rfidListenerBound: false,
   resources: [],
   bookings: [],
   days: [],
@@ -161,11 +164,17 @@ Alpine.data("bookingApp", () => ({
     message: "",
     price: 0
   },
+  errorTimeoutId: null,
 
   async init() {
     this.mode = detectMode();
     persistMode(this.mode);
     this.days = getUpcomingDays(FULL_DAY_COUNT);
+    this.bindRfidListener();
+    if (!USE_MOCKS) {
+      const api = await getApi();
+      api.logBackendStatus?.();
+    }
   },
 
   get selectedResource() {
@@ -225,6 +234,41 @@ Alpine.data("bookingApp", () => ({
   setMode(mode) {
     this.mode = mode;
     persistMode(mode);
+    this.bindRfidListener();
+  },
+
+  bindRfidListener() {
+    if (this.rfidListenerBound) return;
+    window.addEventListener("keydown", (event) => {
+      if (!this.isPosMode || this.isAuthenticated) return;
+      if (event.key === "Enter") {
+        const value = this.rfidBuffer.trim() || this.rfidInput.trim();
+        this.rfidBuffer = "";
+        if (value) {
+          this.rfidInput = value;
+          this.submitRfidInput();
+        }
+        return;
+      }
+      if (event.key.length === 1) {
+        this.rfidBuffer += event.key;
+      }
+    });
+    window.addEventListener("paste", (event) => {
+      if (!this.isPosMode || this.isAuthenticated) return;
+      const text = event.clipboardData?.getData("text")?.trim();
+      if (text) {
+        this.rfidInput = text;
+        this.submitRfidInput();
+      }
+    });
+    this.rfidListenerBound = true;
+  },
+
+  async submitRfidInput() {
+    const value = this.rfidInput.trim();
+    if (!value) return;
+    await this.loginPos(value);
   },
 
   async selectResource(resourceId) {
@@ -250,26 +294,32 @@ Alpine.data("bookingApp", () => ({
     await this.refreshSlots();
   },
 
-  async loginPos() {
+  async loginPos(uidOverride = "") {
     this.loading = true;
-    this.errorMessage = "";
+    this.clearError();
     try {
       const api = await getApi();
-      const result = await api.loginWithRfid(DEMO_RFID_UID);
+      const uid = uidOverride || DEMO_RFID_UID;
+      const result = await api.loginWithRfid(uid);
       this.isAuthenticated = true;
       this.userId = result.apartment_id ?? result.userId ?? null;
+      this.rfidInput = "";
       await this.loadResources();
       await this.loadBookings();
       await this.refreshSlots();
     } catch (error) {
-      this.errorMessage = "Kunde inte logga in via bricka.";
+      if (error?.status === 401) {
+        this.showError("Brickan är inte registrerad eller är inaktiv.");
+      } else {
+        this.showError("Backend kunde inte nås. Kontrollera anslutningen.");
+      }
     }
     this.loading = false;
   },
 
   async loginPassword() {
     this.loading = true;
-    this.errorMessage = "";
+    this.clearError();
     try {
       const api = await getApi();
       const result = await api.loginWithPassword(
@@ -282,8 +332,13 @@ Alpine.data("bookingApp", () => ({
       await this.loadBookings();
       await this.refreshSlots();
     } catch (error) {
-      this.errorMessage =
-        "Felaktigt användar-ID eller lösenord. Saknar du lösenord, registrera dig på POS.";
+      if (error?.status === 401) {
+        this.showError(
+          "Felaktigt användar-ID eller lösenord. Saknar du lösenord, registrera dig på POS."
+        );
+      } else {
+        this.showError("Backend kunde inte nås. Kontrollera anslutningen.");
+      }
     }
     this.loading = false;
   },
@@ -357,7 +412,7 @@ Alpine.data("bookingApp", () => ({
     if (!this.confirm.open) return;
     const { action, payload } = this.confirm;
     this.loading = true;
-    this.errorMessage = "";
+    this.clearError();
     try {
       const api = await getApi();
       if (action === "full-day") {
@@ -392,7 +447,7 @@ Alpine.data("bookingApp", () => ({
       await this.refreshSlots();
       this.closeConfirm();
     } catch (error) {
-      this.errorMessage = "Kunde inte slutföra åtgärden.";
+      this.showError("Kunde inte slutföra åtgärden.");
     } finally {
       this.loading = false;
     }
@@ -475,6 +530,25 @@ Alpine.data("bookingApp", () => ({
     this.selectedResourceId = this.resources[0]?.id ?? null;
     this.days = getUpcomingDays(this.getMaxAdvanceDays());
     this.timeSlotStartIndex = 0;
+  },
+
+  showError(message, timeoutMs = 3500) {
+    this.errorMessage = message;
+    if (this.errorTimeoutId) {
+      clearTimeout(this.errorTimeoutId);
+    }
+    this.errorTimeoutId = window.setTimeout(() => {
+      this.errorMessage = "";
+      this.errorTimeoutId = null;
+    }, timeoutMs);
+  },
+
+  clearError() {
+    if (this.errorTimeoutId) {
+      clearTimeout(this.errorTimeoutId);
+      this.errorTimeoutId = null;
+    }
+    this.errorMessage = "";
   }
 }));
 

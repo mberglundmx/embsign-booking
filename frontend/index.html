@@ -48,34 +48,18 @@
         x-transition
         data-testid="login-card"
       >
-        <div class="flex items-start justify-between gap-6">
+        <div class="flex items-start justify-between gap-6" x-show="!isPosMode">
           <div>
             <p class="card-title">Välkommen</p>
             <p class="text-sm text-slate-600">
               Logga in för att se bokningar och boka objekt.
             </p>
           </div>
-          <div class="rounded-full bg-brand-50 px-4 py-2 text-sm text-brand-700">
-            Enkel och tydlig vy
-          </div>
         </div>
 
         <template x-if="isPosMode">
-          <div class="flex flex-col items-start gap-4">
-            <p class="text-base text-slate-700">
-              POS-terminal: håll upp din bricka för att logga in.
-            </p>
-            <button
-              class="btn btn-primary btn-pos w-full sm:w-auto"
-              @click="loginPos"
-              :disabled="loading"
-              data-testid="pos-login"
-            >
-              Visa bricka
-            </button>
-            <p class="text-sm text-slate-500">
-              Systemet loggar ut automatiskt efter inaktivitet.
-            </p>
+          <div class="flex w-full flex-col items-center justify-center py-6">
+            <p class="text-4xl font-semibold text-slate-900">Visa bricka</p>
           </div>
         </template>
 
@@ -119,7 +103,6 @@
           </form>
         </template>
 
-        <p class="text-sm text-rose-600" x-show="errorMessage" x-text="errorMessage"></p>
       </section>
 
       <section class="flex flex-col gap-6" x-show="isAuthenticated" x-transition>
@@ -314,6 +297,17 @@
             OK
           </button>
         </div>
+      </div>
+    </div>
+
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+      x-show="errorMessage"
+      x-transition
+      data-testid="error-toast"
+    >
+      <div class="rounded-2xl bg-rose-600 px-8 py-6 text-xl font-semibold text-white shadow-xl">
+        <span x-text="errorMessage"></span>
       </div>
     </div>
 
