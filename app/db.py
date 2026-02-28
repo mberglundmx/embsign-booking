@@ -15,6 +15,15 @@ def _ensure_resources_booking_type(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _ensure_apartment_columns(conn: sqlite3.Connection) -> None:
+    columns = conn.execute("PRAGMA table_info(apartments);").fetchall()
+    col_names = {col["name"] for col in columns}
+    for col in ("house", "lgh_internal", "skv_lgh", "access_groups"):
+        if col not in col_names:
+            conn.execute(f"ALTER TABLE apartments ADD COLUMN {col} TEXT")
+    conn.commit()
+
+
 def create_connection(path: str = DATABASE_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -27,6 +36,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute(stmt)
     conn.commit()
     _ensure_resources_booking_type(conn)
+    _ensure_apartment_columns(conn)
 
 
 def get_db() -> Iterator[sqlite3.Connection]:

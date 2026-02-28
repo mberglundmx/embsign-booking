@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from .auth import (
     check_rate_limit,
     create_session,
+    ensure_apartment,
     get_session,
     load_rfid_cache,
     lookup_rfid,
@@ -61,19 +62,19 @@ def require_session(
 @app.post("/rfid-login", response_model=LoginResponse)
 def rfid_login(payload: RFIDLoginRequest, response: Response, conn=Depends(get_db)):
     check_rate_limit()
-    mapping = lookup_rfid(payload.uid)
-    if mapping is None or not mapping[1]:
+    entry = lookup_rfid(payload.uid)
+    if entry is None or not entry.active:
         raise HTTPException(status_code=401, detail="invalid_rfid")
-    apartment_id = mapping[0]
+    ensure_apartment(conn, entry)
     row = conn.execute(
         "SELECT * FROM apartments WHERE id = ? AND is_active = 1",
-        (apartment_id,),
+        (entry.apartment_id,),
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=401, detail="inactive_apartment")
-    token = create_session(conn, apartment_id, is_admin=False)
+    token = create_session(conn, entry.apartment_id, is_admin=False)
     response.set_cookie("session", token, httponly=True, samesite="lax")
-    return LoginResponse(booking_url="/booking", apartment_id=apartment_id)
+    return LoginResponse(booking_url="/booking", apartment_id=entry.apartment_id)
 
 
 @app.post("/mobile-login", response_model=LoginResponse)

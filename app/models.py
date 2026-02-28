@@ -6,7 +6,11 @@ SCHEMA_STATEMENTS = [
     CREATE TABLE IF NOT EXISTS apartments (
         id TEXT PRIMARY KEY,
         password_hash TEXT NOT NULL,
-        is_active INTEGER NOT NULL DEFAULT 1
+        is_active INTEGER NOT NULL DEFAULT 1,
+        house TEXT,
+        lgh_internal TEXT,
+        skv_lgh TEXT,
+        access_groups TEXT
     );
     """,
     """
