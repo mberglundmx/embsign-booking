@@ -140,7 +140,17 @@
               <p class="text-sm text-slate-500" x-text="selectedResource?.name"></p>
             </div>
 
-            <template x-if="selectedResource?.bookingType === 'full-day'">
+            <template x-if="availabilityLoading">
+              <div
+                class="mt-6 flex flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 py-10"
+                data-testid="availability-loading"
+              >
+                <div class="h-9 w-9 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600"></div>
+                <p class="text-sm font-medium text-slate-600">Laddar tillgänglighet...</p>
+              </div>
+            </template>
+
+            <template x-if="!availabilityLoading && selectedResource?.bookingType === 'full-day'">
               <div class="mt-4 overflow-x-auto">
                 <div class="grid min-w-[720px] grid-cols-7 gap-2 text-center text-xs font-semibold text-slate-500">
                   <template x-for="label in weekdayLabels" :key="label">
@@ -174,7 +184,7 @@
               </div>
             </template>
 
-            <template x-if="selectedResource?.bookingType === 'time-slot'">
+            <template x-if="!availabilityLoading && selectedResource?.bookingType === 'time-slot'">
               <div class="mt-4 flex flex-col gap-2">
                 <div
                   class="time-grid items-stretch gap-2 text-center text-xs font-semibold text-slate-600"

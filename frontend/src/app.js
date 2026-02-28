@@ -155,6 +155,8 @@ Alpine.data("bookingApp", () => ({
   slotsByDate: {},
   fullDayAvailability: {},
   loading: false,
+  availabilityLoading: false,
+  availabilityRequestToken: 0,
   errorMessage: "",
   confirm: {
     open: false,
@@ -275,6 +277,7 @@ Alpine.data("bookingApp", () => ({
     this.selectedResourceId = resourceId;
     this.days = getUpcomingDays(this.getMaxAdvanceDays());
     this.timeSlotStartIndex = 0;
+    this.resetAvailabilityData();
     await this.refreshSlots();
   },
 
@@ -349,8 +352,7 @@ Alpine.data("bookingApp", () => ({
     this.userIdInput = "";
     this.passwordInput = "";
     this.bookings = [];
-    this.slotsByDate = {};
-    this.fullDayAvailability = {};
+    this.resetAvailabilityData();
   },
 
   async loadBookings() {
@@ -495,31 +497,60 @@ Alpine.data("bookingApp", () => ({
     return this.isTimeSlotPast(dateString, slotId) || this.isTimeSlotBooked(dateString, slotId);
   },
 
+  resetAvailabilityData() {
+    this.availabilityRequestToken += 1;
+    this.availabilityLoading = false;
+    this.slotsByDate = {};
+    this.fullDayAvailability = {};
+  },
+
   async refreshSlots() {
     if (!this.selectedResourceId) return;
-    const api = await getApi();
-    if (this.selectedResource?.bookingType === "time-slot") {
-      const entries = await Promise.all(
-        this.timeSlotDays.map(async (date) => {
-          const slots = await api.getSlots(this.selectedResourceId, date);
-          return [date, normalizeSlots(slots)];
-        })
-      );
-      this.slotsByDate = {
-        ...this.slotsByDate,
-        ...Object.fromEntries(entries)
-      };
+    const requestToken = ++this.availabilityRequestToken;
+    const resourceId = this.selectedResourceId;
+    const bookingType = this.selectedResource?.bookingType;
+    const timeSlotDays = [...this.timeSlotDays];
+    const fullDayDays = [...this.days];
+
+    this.availabilityLoading = true;
+    if (bookingType === "time-slot") {
+      this.slotsByDate = {};
     } else {
-      const availabilityEntries = await Promise.all(
-        this.days.map(async (date) => {
-          const slots = await api.getSlots(this.selectedResourceId, date);
-          const normalized = normalizeSlots(slots);
-          const available =
-            normalized.length > 0 && !normalized[0].isBooked && !normalized[0].isPast;
-          return [date, available];
-        })
-      );
-      this.fullDayAvailability = Object.fromEntries(availabilityEntries);
+      this.fullDayAvailability = {};
+    }
+
+    try {
+      const api = await getApi();
+      if (bookingType === "time-slot") {
+        const entries = await Promise.all(
+          timeSlotDays.map(async (date) => {
+            const slots = await api.getSlots(resourceId, date);
+            return [date, normalizeSlots(slots)];
+          })
+        );
+        if (requestToken !== this.availabilityRequestToken || resourceId !== this.selectedResourceId) {
+          return;
+        }
+        this.slotsByDate = Object.fromEntries(entries);
+      } else {
+        const availabilityEntries = await Promise.all(
+          fullDayDays.map(async (date) => {
+            const slots = await api.getSlots(resourceId, date);
+            const normalized = normalizeSlots(slots);
+            const available =
+              normalized.length > 0 && !normalized[0].isBooked && !normalized[0].isPast;
+            return [date, available];
+          })
+        );
+        if (requestToken !== this.availabilityRequestToken || resourceId !== this.selectedResourceId) {
+          return;
+        }
+        this.fullDayAvailability = Object.fromEntries(availabilityEntries);
+      }
+    } finally {
+      if (requestToken === this.availabilityRequestToken) {
+        this.availabilityLoading = false;
+      }
     }
   },
 
@@ -530,6 +561,7 @@ Alpine.data("bookingApp", () => ({
     this.selectedResourceId = this.resources[0]?.id ?? null;
     this.days = getUpcomingDays(this.getMaxAdvanceDays());
     this.timeSlotStartIndex = 0;
+    this.resetAvailabilityData();
   },
 
   showError(message, timeoutMs = 3500) {
