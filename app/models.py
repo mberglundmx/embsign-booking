@@ -22,6 +22,7 @@ SCHEMA_STATEMENTS = [
         slot_start_hour INTEGER NOT NULL DEFAULT 6,
         slot_end_hour INTEGER NOT NULL DEFAULT 22,
         max_future_days INTEGER NOT NULL DEFAULT 30,
+        max_bookings INTEGER NOT NULL DEFAULT 2,
         allow_houses TEXT NOT NULL DEFAULT '',
         deny_apartment_ids TEXT NOT NULL DEFAULT '',
         is_active INTEGER NOT NULL DEFAULT 1,

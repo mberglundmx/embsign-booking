@@ -116,6 +116,10 @@ def _max_future_days(raw: Any) -> int:
     return _to_positive_int(raw, 30)
 
 
+def _max_bookings(raw: Any) -> int:
+    return _to_positive_int(raw, 2)
+
+
 def _hour_in_range(value: Any, default: int, *, min_value: int, max_value: int) -> int:
     try:
         hour = int(value)
@@ -224,6 +228,7 @@ def load_booking_objects(conn, config_url: str | None = None) -> int:
             slot_start_hour = 6
             slot_end_hour = 22
         max_future_days = _max_future_days(obj.get("max_future"))
+        max_bookings = _max_bookings(obj.get("max_bookings"))
         access = obj.get("access")
         if not isinstance(access, dict):
             access = {}
@@ -238,13 +243,14 @@ def load_booking_objects(conn, config_url: str | None = None) -> int:
                 slot_start_hour,
                 slot_end_hour,
                 max_future_days,
+                max_bookings,
                 allow_houses,
                 deny_apartment_ids,
                 is_active,
                 price_cents,
                 is_billable
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             """,
             (
                 name,
@@ -253,6 +259,7 @@ def load_booking_objects(conn, config_url: str | None = None) -> int:
                 slot_start_hour,
                 slot_end_hour,
                 max_future_days,
+                max_bookings,
                 _encode_rule_values(allow_houses),
                 _encode_rule_values(deny_apartments),
                 price_cents,

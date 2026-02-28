@@ -145,6 +145,7 @@ def list_resources(session=Depends(require_session), conn=Depends(get_db)):
             slot_start_hour,
             slot_end_hour,
             max_future_days,
+            max_bookings,
             allow_houses,
             deny_apartment_ids,
             price_cents,
@@ -198,7 +199,9 @@ def book(payload: BookRequest, session=Depends(require_session), conn=Depends(ge
         )
     except PermissionError:
         raise HTTPException(status_code=403, detail="forbidden_resource")
-    except ValueError:
+    except ValueError as exc:
+        if str(exc) == "max_bookings":
+            raise HTTPException(status_code=409, detail="max_bookings_reached")
         raise HTTPException(status_code=409, detail="overlap")
     return BookingResponse(booking_id=booking_id)
 

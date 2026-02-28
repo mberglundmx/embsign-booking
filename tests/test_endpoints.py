@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+import app.booking as booking
 from app.auth import RFID_CACHE, RfidEntry, create_session, parse_apartment_name
 
 
@@ -142,6 +143,66 @@ def test_book_overlap_conflict(client, db_conn, seeded_apartment, seeded_resourc
         cookies={"session": token},
     )
     assert conflict.status_code == 409
+
+
+def test_book_limits_future_bookings_per_resource(
+    client, db_conn, seeded_apartment, seeded_resource, monkeypatch
+):
+    fixed_now = datetime(2026, 2, 1, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(booking, "_now_utc", lambda: fixed_now)
+    db_conn.execute(
+        "UPDATE resources SET max_bookings = ? WHERE id = ?",
+        (2, seeded_resource),
+    )
+    db_conn.commit()
+
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+    first_start = datetime(2026, 2, 10, 8, 0, tzinfo=timezone.utc).isoformat()
+    first_end = datetime(2026, 2, 10, 9, 0, tzinfo=timezone.utc).isoformat()
+    second_start = datetime(2026, 2, 10, 9, 0, tzinfo=timezone.utc).isoformat()
+    second_end = datetime(2026, 2, 10, 10, 0, tzinfo=timezone.utc).isoformat()
+    third_start = datetime(2026, 2, 11, 8, 0, tzinfo=timezone.utc).isoformat()
+    third_end = datetime(2026, 2, 11, 9, 0, tzinfo=timezone.utc).isoformat()
+
+    first_response = client.post(
+        "/book",
+        json={
+            "apartment_id": seeded_apartment,
+            "resource_id": seeded_resource,
+            "start_time": first_start,
+            "end_time": first_end,
+            "is_billable": False,
+        },
+        cookies={"session": token},
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        "/book",
+        json={
+            "apartment_id": seeded_apartment,
+            "resource_id": seeded_resource,
+            "start_time": second_start,
+            "end_time": second_end,
+            "is_billable": False,
+        },
+        cookies={"session": token},
+    )
+    assert second_response.status_code == 200
+
+    third_response = client.post(
+        "/book",
+        json={
+            "apartment_id": seeded_apartment,
+            "resource_id": seeded_resource,
+            "start_time": third_start,
+            "end_time": third_end,
+            "is_billable": False,
+        },
+        cookies={"session": token},
+    )
+    assert third_response.status_code == 409
+    assert third_response.json()["detail"] == "max_bookings_reached"
 
 
 def test_admin_calendar_requires_admin(client, db_conn, seeded_apartment, seeded_resource):
