@@ -1,14 +1,42 @@
 from datetime import datetime, timezone
 
-from app.auth import RFID_CACHE, create_session
+from app.auth import RFID_CACHE, RfidEntry, create_session, parse_apartment_name
 
 
 def test_rfid_login_success(client, db_conn, seeded_apartment):
-    RFID_CACHE["UID123"] = (seeded_apartment, True)
+    RFID_CACHE["UID123"] = RfidEntry(
+        apartment_id=seeded_apartment,
+        house="1",
+        lgh_internal="101",
+        skv_lgh="101",
+        active=True,
+        access_groups=["Boende"],
+    )
     response = client.post("/rfid-login", json={"uid": "UID123"})
     assert response.status_code == 200
     assert response.json()["booking_url"] == "/booking"
     assert "session" in response.cookies
+
+
+def test_rfid_login_auto_creates_apartment(client, db_conn):
+    """When a valid RFID tag is scanned but the apartment is not in DB, it should be auto-created."""
+    RFID_CACHE["NEWUID"] = RfidEntry(
+        apartment_id="1-1201",
+        house="1",
+        lgh_internal="1013",
+        skv_lgh="1201",
+        active=True,
+        access_groups=["Boende", "Gym Norra gaveln Hus 1"],
+    )
+    response = client.post("/rfid-login", json={"uid": "NEWUID"})
+    assert response.status_code == 200
+    assert response.json()["apartment_id"] == "1-1201"
+    row = db_conn.execute("SELECT * FROM apartments WHERE id = ?", ("1-1201",)).fetchone()
+    assert row is not None
+    assert row["house"] == "1"
+    assert row["lgh_internal"] == "1013"
+    assert row["skv_lgh"] == "1201"
+    assert "Boende" in row["access_groups"]
 
 
 def test_rfid_login_invalid(client):
@@ -125,3 +153,30 @@ def test_admin_calendar_requires_admin(client, db_conn, seeded_apartment, seeded
     response = client.get("/admin/calendar", cookies={"session": admin_token})
     assert response.status_code == 200
     assert "bookings" in response.json()
+
+
+class TestParseApartmentName:
+    def test_standard_format(self):
+        result = parse_apartment_name("1-LGH1013 /1201 tag1")
+        assert result == {"house": "1", "lgh_internal": "1013", "skv_lgh": "1201"}
+
+    def test_with_name_suffix(self):
+        result = parse_apartment_name("1-LGH1001 /1001 Kor tag1")
+        assert result == {"house": "1", "lgh_internal": "1001", "skv_lgh": "1001"}
+
+    def test_space_after_slash(self):
+        result = parse_apartment_name("1-LGH1001/ 1005 tag1")
+        assert result == {"house": "1", "lgh_internal": "1001", "skv_lgh": "1005"}
+
+    def test_space_before_lgh(self):
+        result = parse_apartment_name("4-LGH 1084/1308 EM K")
+        assert result == {"house": "4", "lgh_internal": "1084", "skv_lgh": "1308"}
+
+    def test_lowercase_lgh(self):
+        result = parse_apartment_name("6- Lgh 1173/1705 EM Fredrik")
+        assert result == {"house": "6", "lgh_internal": "1173", "skv_lgh": "1705"}
+
+    def test_non_apartment(self):
+        assert parse_apartment_name("Securitas tag1") is None
+        assert parse_apartment_name("Städ tag2 iLOQ") is None
+        assert parse_apartment_name("") is None
