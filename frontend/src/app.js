@@ -3,7 +3,7 @@ import {
   formatWallClockRange,
   getUtcDayWindow,
   parseLocalDateString,
-  toLocalDateString
+  toLocalDateString,
 } from "./dateUtils";
 
 const DEFAULT_MODE = "desktop";
@@ -47,7 +47,9 @@ function getDateString(date) {
 
 function getUpcomingDays(count) {
   const today = new Date();
-  return Array.from({ length: count }, (_, index) => getDateString(addDays(today, index)));
+  return Array.from({ length: count }, (_, index) =>
+    getDateString(addDays(today, index)),
+  );
 }
 
 function formatDate(dateString) {
@@ -55,7 +57,7 @@ function formatDate(dateString) {
   return new Intl.DateTimeFormat("sv-SE", {
     weekday: "short",
     day: "numeric",
-    month: "short"
+    month: "short",
   }).format(date);
 }
 
@@ -64,7 +66,7 @@ function formatDateLong(dateString) {
   return new Intl.DateTimeFormat("sv-SE", {
     weekday: "long",
     day: "numeric",
-    month: "long"
+    month: "long",
   }).format(date);
 }
 
@@ -80,12 +82,12 @@ function normalizeResources(resources) {
     maxAdvanceDays:
       typeof resource.max_future_days === "number"
         ? resource.max_future_days
-        : resource.maxAdvanceDays ?? FULL_DAY_COUNT,
+        : (resource.maxAdvanceDays ?? FULL_DAY_COUNT),
     price:
       typeof resource.price_cents === "number"
         ? Math.round(resource.price_cents / 100)
-        : resource.price ?? 0,
-    isBillable: resource.is_billable ?? resource.isBillable ?? false
+        : (resource.price ?? 0),
+    isBillable: resource.is_billable ?? resource.isBillable ?? false,
   }));
 }
 
@@ -97,7 +99,9 @@ function normalizeBookings(bookings) {
     const date = booking.start_time.split("T")[0];
     const bookingType = booking.booking_type ?? "time-slot";
     const slotLabel =
-      bookingType === "time-slot" ? formatTimeRange(booking.start_time, booking.end_time) : null;
+      bookingType === "time-slot"
+        ? formatTimeRange(booking.start_time, booking.end_time)
+        : null;
     return {
       id: booking.id,
       resourceId: booking.resource_id,
@@ -108,7 +112,7 @@ function normalizeBookings(bookings) {
       price:
         typeof booking.price_cents === "number"
           ? Math.round(booking.price_cents / 100)
-          : 0
+          : 0,
     };
   });
 }
@@ -123,7 +127,7 @@ function normalizeSlots(slots) {
         startTime: slot.start_time,
         endTime: slot.end_time,
         isBooked: Boolean(slot.is_booked),
-        isPast: Boolean(slot.is_past)
+        isPast: Boolean(slot.is_past),
       };
     }
     return slot;
@@ -159,7 +163,7 @@ Alpine.data("bookingApp", () => ({
     payload: null,
     title: "",
     message: "",
-    price: 0
+    price: 0,
   },
   errorTimeoutId: null,
 
@@ -175,7 +179,9 @@ Alpine.data("bookingApp", () => ({
   },
 
   get selectedResource() {
-    return this.resources.find((resource) => resource.id === this.selectedResourceId);
+    return this.resources.find(
+      (resource) => resource.id === this.selectedResourceId,
+    );
   },
 
   getMaxAdvanceDays() {
@@ -189,7 +195,7 @@ Alpine.data("bookingApp", () => ({
   get timeSlotDays() {
     return this.days.slice(
       this.timeSlotStartIndex,
-      this.timeSlotStartIndex + TIME_SLOT_DAYS_VISIBLE
+      this.timeSlotStartIndex + TIME_SLOT_DAYS_VISIBLE,
     );
   },
 
@@ -213,10 +219,15 @@ Alpine.data("bookingApp", () => ({
     const date = parseLocalDateString(dateString);
     const dayIndex = date.getDay();
     return {
-      weekday: new Intl.DateTimeFormat("sv-SE", { weekday: "long" }).format(date),
-      dateLabel: new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "long" }).format(date),
+      weekday: new Intl.DateTimeFormat("sv-SE", { weekday: "long" }).format(
+        date,
+      ),
+      dateLabel: new Intl.DateTimeFormat("sv-SE", {
+        day: "numeric",
+        month: "long",
+      }).format(date),
       isSaturday: dayIndex === 6,
-      isSunday: dayIndex === 0
+      isSunday: dayIndex === 0,
     };
   },
 
@@ -321,7 +332,7 @@ Alpine.data("bookingApp", () => ({
       const api = await getApi();
       const result = await api.loginWithPassword(
         this.userIdInput.trim(),
-        this.passwordInput.trim()
+        this.passwordInput.trim(),
       );
       this.isAuthenticated = true;
       this.userId = result.apartment_id ?? result.userId ?? null;
@@ -331,7 +342,7 @@ Alpine.data("bookingApp", () => ({
     } catch (error) {
       if (error?.status === 401) {
         this.showError(
-          "Felaktigt användar-ID eller lösenord. Saknar du lösenord, registrera dig på POS."
+          "Felaktigt användar-ID eller lösenord. Saknar du lösenord, registrera dig på POS.",
         );
       } else {
         this.showError("Backend kunde inte nås. Kontrollera anslutningen.");
@@ -354,7 +365,9 @@ Alpine.data("bookingApp", () => ({
     if (!this.userId) return;
     const api = await getApi();
     const bookings =
-      api.getBookings.length > 0 ? await api.getBookings(this.userId) : await api.getBookings();
+      api.getBookings.length > 0
+        ? await api.getBookings(this.userId)
+        : await api.getBookings();
     this.bookings = normalizeBookings(bookings);
   },
 
@@ -375,7 +388,9 @@ Alpine.data("bookingApp", () => ({
   },
 
   openConfirmBooking(payload) {
-    const resource = this.resources.find((item) => item.id === payload.resourceId);
+    const resource = this.resources.find(
+      (item) => item.id === payload.resourceId,
+    );
     const price = resource?.price ?? 0;
     const isFullDay = payload.type === "full-day";
     this.confirm = {
@@ -386,7 +401,7 @@ Alpine.data("bookingApp", () => ({
       message: isFullDay
         ? `Boka ${payload.resourceName} den ${this.formatDayLong(payload.date)}?`
         : `Boka ${payload.resourceName} den ${this.formatDayLong(payload.date)} (${payload.slotLabel})?`,
-      price
+      price,
     };
   },
 
@@ -397,7 +412,7 @@ Alpine.data("bookingApp", () => ({
       payload: booking,
       title: "Avboka",
       message: `Avboka ${booking.resourceName} den ${this.formatDayLong(booking.date)}?`,
-      price: 0
+      price: 0,
     };
   },
 
@@ -419,13 +434,14 @@ Alpine.data("bookingApp", () => ({
           resource_id: payload.resourceId,
           start_time: window.start,
           end_time: window.end,
-          is_billable: Boolean(this.confirm.price && this.confirm.price > 0)
+          is_billable: Boolean(this.confirm.price && this.confirm.price > 0),
         });
       }
       if (action === "time-slot") {
         const slot =
-          (this.slotsByDate[payload.date] ?? []).find((item) => item.id === payload.slotId) ??
-          null;
+          (this.slotsByDate[payload.date] ?? []).find(
+            (item) => item.id === payload.slotId,
+          ) ?? null;
         if (!slot) {
           throw new Error("Slot saknas.");
         }
@@ -434,7 +450,7 @@ Alpine.data("bookingApp", () => ({
           resource_id: payload.resourceId,
           start_time: slot.startTime,
           end_time: slot.endTime,
-          is_billable: Boolean(this.confirm.price && this.confirm.price > 0)
+          is_billable: Boolean(this.confirm.price && this.confirm.price > 0),
         });
       }
       if (action === "cancel") {
@@ -459,7 +475,7 @@ Alpine.data("bookingApp", () => ({
       date,
       label: this.getDayLabel(date),
       booked: this.isDayBooked(date),
-      isPadding: false
+      isPadding: false,
     }));
     const firstDate = calendarDays[0]?.date;
     if (!firstDate) return [];
@@ -469,7 +485,7 @@ Alpine.data("bookingApp", () => ({
       date: null,
       label: "",
       booked: false,
-      isPadding: true
+      isPadding: true,
     }));
     return [...padding, ...calendarDays];
   },
@@ -489,7 +505,10 @@ Alpine.data("bookingApp", () => ({
   },
 
   isTimeSlotDisabled(dateString, slotId) {
-    return this.isTimeSlotPast(dateString, slotId) || this.isTimeSlotBooked(dateString, slotId);
+    return (
+      this.isTimeSlotPast(dateString, slotId) ||
+      this.isTimeSlotBooked(dateString, slotId)
+    );
   },
 
   async refreshSlots() {
@@ -500,11 +519,11 @@ Alpine.data("bookingApp", () => ({
         this.timeSlotDays.map(async (date) => {
           const slots = await api.getSlots(this.selectedResourceId, date);
           return [date, normalizeSlots(slots)];
-        })
+        }),
       );
       this.slotsByDate = {
         ...this.slotsByDate,
-        ...Object.fromEntries(entries)
+        ...Object.fromEntries(entries),
       };
     } else {
       const availabilityEntries = await Promise.all(
@@ -512,9 +531,11 @@ Alpine.data("bookingApp", () => ({
           const slots = await api.getSlots(this.selectedResourceId, date);
           const normalized = normalizeSlots(slots);
           const available =
-            normalized.length > 0 && !normalized[0].isBooked && !normalized[0].isPast;
+            normalized.length > 0 &&
+            !normalized[0].isBooked &&
+            !normalized[0].isPast;
           return [date, available];
-        })
+        }),
       );
       this.fullDayAvailability = Object.fromEntries(availabilityEntries);
     }
@@ -546,7 +567,7 @@ Alpine.data("bookingApp", () => ({
       this.errorTimeoutId = null;
     }
     this.errorMessage = "";
-  }
+  },
 }));
 
 Alpine.start();
