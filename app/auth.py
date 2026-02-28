@@ -145,9 +145,7 @@ def load_rfid_cache() -> None:
             continue
 
         active = status_str == "0"
-        access_groups = [
-            g.strip() for g in access_groups_raw.split("|") if g.strip()
-        ]
+        access_groups = [g.strip() for g in access_groups_raw.split("|") if g.strip()]
         apartment_id = _build_apartment_id(parsed["house"], parsed["skv_lgh"])
 
         cache[rfid_uid] = RfidEntry(
@@ -170,9 +168,7 @@ def lookup_rfid(uid: str) -> Optional[RfidEntry]:
 
 def ensure_apartment(conn, entry: RfidEntry) -> None:
     """Create the apartment row if it does not exist yet."""
-    row = conn.execute(
-        "SELECT id FROM apartments WHERE id = ?", (entry.apartment_id,)
-    ).fetchone()
+    row = conn.execute("SELECT id FROM apartments WHERE id = ?", (entry.apartment_id,)).fetchone()
     if row is not None:
         return
     random_pw = secrets.token_urlsafe(24)
@@ -191,8 +187,13 @@ def ensure_apartment(conn, entry: RfidEntry) -> None:
         ),
     )
     conn.commit()
-    logger.info("Auto-created apartment %s (house=%s, lgh=%s, skv=%s)",
-                entry.apartment_id, entry.house, entry.lgh_internal, entry.skv_lgh)
+    logger.info(
+        "Auto-created apartment %s (house=%s, lgh=%s, skv=%s)",
+        entry.apartment_id,
+        entry.house,
+        entry.lgh_internal,
+        entry.skv_lgh,
+    )
 
 
 def check_rate_limit() -> None:

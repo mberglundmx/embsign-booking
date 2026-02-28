@@ -65,9 +65,7 @@ def test_time_slots_follow_resource_duration_and_window(client, db_conn, seeded_
     assert slots[-1]["end_time"].endswith("20:00:00+00:00")
 
 
-def test_passed_time_slots_today_are_not_bookable(
-    client, db_conn, seeded_apartment, monkeypatch
-):
+def test_passed_time_slots_today_are_not_bookable(client, db_conn, seeded_apartment, monkeypatch):
     fixed_now = datetime(2026, 3, 1, 13, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(booking, "_now_utc", lambda: fixed_now)
 

@@ -79,11 +79,11 @@ function normalizeResources(resources) {
     maxAdvanceDays:
       typeof resource.max_future_days === "number"
         ? resource.max_future_days
-        : resource.maxAdvanceDays ?? FULL_DAY_COUNT,
+        : (resource.maxAdvanceDays ?? FULL_DAY_COUNT),
     price:
       typeof resource.price_cents === "number"
         ? Math.round(resource.price_cents / 100)
-        : resource.price ?? 0,
+        : (resource.price ?? 0),
     isBillable: resource.is_billable ?? resource.isBillable ?? false
   }));
 }
@@ -104,10 +104,7 @@ function normalizeBookings(bookings) {
       date,
       slotLabel,
       bookingType,
-      price:
-        typeof booking.price_cents === "number"
-          ? Math.round(booking.price_cents / 100)
-          : 0
+      price: typeof booking.price_cents === "number" ? Math.round(booking.price_cents / 100) : 0
     };
   });
 }
@@ -425,8 +422,7 @@ Alpine.data("bookingApp", () => ({
       }
       if (action === "time-slot") {
         const slot =
-          (this.slotsByDate[payload.date] ?? []).find((item) => item.id === payload.slotId) ??
-          null;
+          (this.slotsByDate[payload.date] ?? []).find((item) => item.id === payload.slotId) ?? null;
         if (!slot) {
           throw new Error("Slot saknas.");
         }
@@ -444,7 +440,7 @@ Alpine.data("bookingApp", () => ({
       await this.loadBookings();
       await this.refreshSlots();
       this.closeConfirm();
-    } catch (error) {
+    } catch {
       this.showError("Kunde inte slutföra åtgärden.");
     } finally {
       this.loading = false;

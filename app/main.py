@@ -23,7 +23,6 @@ from .booking import (
 )
 from .config import CSV_URL, DATABASE_PATH, FRONTEND_ORIGINS, GITHUB_TOKEN
 from .db import create_connection, get_db, init_db
-from .models import row_to_dict
 from .resource_config import load_booking_objects
 from .schemas import (
     BookRequest,

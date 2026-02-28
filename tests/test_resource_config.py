@@ -133,10 +133,7 @@ def test_load_booking_objects_derives_booking_yaml_url_from_csv_url(db_conn, mon
 
     inserted = resource_config.load_booking_objects(db_conn)
     assert inserted == 0
-    assert (
-        calls["url"]
-        == "https://api.github.com/repos/acme/brf/contents/booking.yaml?ref=main"
-    )
+    assert calls["url"] == "https://api.github.com/repos/acme/brf/contents/booking.yaml?ref=main"
 
 
 def test_load_booking_objects_maps_slot_settings_from_yaml(db_conn, monkeypatch):

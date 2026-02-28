@@ -1,6 +1,10 @@
 app.db
 .venv
 .pytest_cache
+.ruff_cache
+.coverage
+coverage.xml
+htmlcov
 app/__pycache__
 frontend/node_modules
 frontend/test-results

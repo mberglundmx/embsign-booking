@@ -48,7 +48,10 @@ def _has_overlap_in_intervals(
     start_dt: datetime,
     end_dt: datetime,
 ) -> bool:
-    return any(existing_start < end_dt and existing_end > start_dt for existing_start, existing_end in intervals)
+    return any(
+        existing_start < end_dt and existing_end > start_dt
+        for existing_start, existing_end in intervals
+    )
 
 
 def _normalize_max_bookings(raw: object) -> int:
