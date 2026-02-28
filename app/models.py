@@ -18,6 +18,12 @@ SCHEMA_STATEMENTS = [
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         booking_type TEXT NOT NULL DEFAULT 'time-slot',
+        slot_duration_minutes INTEGER NOT NULL DEFAULT 60,
+        slot_start_hour INTEGER NOT NULL DEFAULT 6,
+        slot_end_hour INTEGER NOT NULL DEFAULT 22,
+        max_future_days INTEGER NOT NULL DEFAULT 30,
+        allow_houses TEXT NOT NULL DEFAULT '',
+        deny_apartment_ids TEXT NOT NULL DEFAULT '',
         is_active INTEGER NOT NULL DEFAULT 1,
         price_cents INTEGER NOT NULL DEFAULT 0,
         is_billable INTEGER NOT NULL DEFAULT 0

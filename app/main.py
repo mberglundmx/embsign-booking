@@ -14,7 +14,13 @@ from .auth import (
     lookup_rfid,
     verify_password,
 )
-from .booking import admin_calendar, cancel_booking, create_booking, list_slots
+from .booking import (
+    admin_calendar,
+    can_access_resource,
+    cancel_booking,
+    create_booking,
+    list_slots,
+)
 from .config import CSV_URL, DATABASE_PATH, FRONTEND_ORIGINS, GITHUB_TOKEN
 from .db import create_connection, get_db, init_db
 from .models import row_to_dict
@@ -116,22 +122,48 @@ def get_slots(
     session=Depends(require_session),
     conn=Depends(get_db),
 ):
-    _ = session
-    return {"slots": list_slots(conn, resource_id, date)}
+    return {
+        "slots": list_slots(
+            conn,
+            resource_id,
+            date,
+            apartment_id=session["apartment_id"],
+            is_admin=bool(session["is_admin"]),
+        )
+    }
 
 
 @app.get("/resources", response_model=ResourcesResponse)
 def list_resources(session=Depends(require_session), conn=Depends(get_db)):
-    _ = session
     rows = conn.execute(
         """
-        SELECT id, name, booking_type, price_cents, is_billable
+        SELECT
+            id,
+            name,
+            booking_type,
+            slot_duration_minutes,
+            slot_start_hour,
+            slot_end_hour,
+            max_future_days,
+            allow_houses,
+            deny_apartment_ids,
+            price_cents,
+            is_billable
         FROM resources
         WHERE is_active = 1
         ORDER BY id ASC
         """
     ).fetchall()
-    return {"resources": [dict(row) for row in rows]}
+    resources = []
+    for row in rows:
+        if session["is_admin"] or can_access_resource(
+            conn,
+            int(row["id"]),
+            session["apartment_id"],
+            is_admin=bool(session["is_admin"]),
+        ):
+            resources.append(dict(row))
+    return {"resources": resources}
 
 
 @app.get("/bookings", response_model=BookingsResponse)
@@ -162,7 +194,10 @@ def book(payload: BookRequest, session=Depends(require_session), conn=Depends(ge
             payload.start_time,
             payload.end_time,
             bool(payload.is_billable),
+            bool(session["is_admin"]),
         )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="forbidden_resource")
     except ValueError:
         raise HTTPException(status_code=409, detail="overlap")
     return BookingResponse(booking_id=booking_id)

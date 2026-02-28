@@ -75,6 +75,10 @@ function normalizeResources(resources) {
     id: resource.id,
     name: resource.name,
     bookingType: resource.booking_type ?? resource.bookingType ?? "time-slot",
+    maxAdvanceDays:
+      typeof resource.max_future_days === "number"
+        ? resource.max_future_days
+        : resource.maxAdvanceDays ?? FULL_DAY_COUNT,
     price:
       typeof resource.price_cents === "number"
         ? Math.round(resource.price_cents / 100)
@@ -110,12 +114,14 @@ function normalizeBookings(bookings) {
 function normalizeSlots(slots) {
   return slots.map((slot) => {
     if (slot.start_time) {
+      const label = formatTimeRange(slot.start_time, slot.end_time);
       return {
-        id: `${slot.start_time}-${slot.end_time}`,
-        label: formatTimeRange(slot.start_time, slot.end_time),
+        id: label,
+        label,
         startTime: slot.start_time,
         endTime: slot.end_time,
-        isBooked: Boolean(slot.is_booked)
+        isBooked: Boolean(slot.is_booked),
+        isPast: Boolean(slot.is_past)
       };
     }
     return slot;
@@ -365,6 +371,12 @@ Alpine.data("bookingApp", () => ({
     return slot ? slot.isBooked : true;
   },
 
+  isSlotPast(dateString, slotId) {
+    const slots = this.slotsByDate[dateString] ?? [];
+    const slot = slots.find((item) => item.id === slotId);
+    return slot ? slot.isPast : false;
+  },
+
   openConfirmBooking(payload) {
     const resource = this.resources.find((item) => item.id === payload.resourceId);
     const price = resource?.price ?? 0;
@@ -474,6 +486,15 @@ Alpine.data("bookingApp", () => ({
     return this.isSlotBooked(dateString, slotId);
   },
 
+  isTimeSlotPast(dateString, slotId) {
+    if (!this.selectedResourceId) return false;
+    return this.isSlotPast(dateString, slotId);
+  },
+
+  isTimeSlotDisabled(dateString, slotId) {
+    return this.isTimeSlotPast(dateString, slotId) || this.isTimeSlotBooked(dateString, slotId);
+  },
+
   async refreshSlots() {
     if (!this.selectedResourceId) return;
     const api = await getApi();
@@ -493,7 +514,8 @@ Alpine.data("bookingApp", () => ({
         this.days.map(async (date) => {
           const slots = await api.getSlots(this.selectedResourceId, date);
           const normalized = normalizeSlots(slots);
-          const available = normalized.length > 0 && !normalized[0].isBooked;
+          const available =
+            normalized.length > 0 && !normalized[0].isBooked && !normalized[0].isPast;
           return [date, available];
         })
       );
