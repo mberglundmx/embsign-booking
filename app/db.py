@@ -9,9 +9,7 @@ def _ensure_resources_booking_type(conn: sqlite3.Connection) -> None:
     columns = conn.execute("PRAGMA table_info(resources);").fetchall()
     if any(col["name"] == "booking_type" for col in columns):
         return
-    conn.execute(
-        "ALTER TABLE resources ADD COLUMN booking_type TEXT NOT NULL DEFAULT 'time-slot'"
-    )
+    conn.execute("ALTER TABLE resources ADD COLUMN booking_type TEXT NOT NULL DEFAULT 'time-slot'")
     conn.commit()
 
 

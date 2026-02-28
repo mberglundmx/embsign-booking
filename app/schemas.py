@@ -63,4 +63,3 @@ class BookingItem(BaseModel):
 
 class BookingsResponse(BaseModel):
     bookings: list[BookingItem]
-
