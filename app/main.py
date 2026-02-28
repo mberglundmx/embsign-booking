@@ -1,8 +1,11 @@
+import logging
+
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .auth import (
+    RFID_CACHE,
     check_rate_limit,
     create_session,
     ensure_apartment,
@@ -27,7 +30,13 @@ from .schemas import (
     ResourcesResponse,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+)
+
 app = FastAPI(title="BRF Laundry Booking")
+logger = logging.getLogger(__name__)
 
 origins = [origin.strip() for origin in FRONTEND_ORIGINS.split(",") if origin.strip()]
 if origins:
@@ -64,6 +73,7 @@ def require_session(
 @app.post("/rfid-login", response_model=LoginResponse)
 def rfid_login(payload: RFIDLoginRequest, response: Response, conn=Depends(get_db)):
     check_rate_limit()
+    logger.info("RFID login attempt uid=%s cache_size=%d", payload.uid, len(RFID_CACHE))
     entry = lookup_rfid(payload.uid)
     if entry is None or not entry.active:
         raise HTTPException(status_code=401, detail="invalid_rfid")
