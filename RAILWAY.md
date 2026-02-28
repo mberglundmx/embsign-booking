@@ -33,6 +33,7 @@ Kort svar:
 - **Miljövariabler:**
   - `FRONTEND_ORIGINS=https://<frontend-domain>`
   - `CSV_URL=` (tom om du inte använder extern CSV-källa)
+  - `CONFIG_URL=` (valfri URL till `booking.yaml`; om tom försöker backend använda samma repo som `CSV_URL`)
   - `DATABASE_PATH=/data/app.db` (rekommenderas om du använder volume)
 
 Rekommenderat för SQLite:

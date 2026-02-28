@@ -15,6 +15,7 @@ from .booking import admin_calendar, cancel_booking, create_booking, list_slots
 from .config import DATABASE_PATH, FRONTEND_ORIGINS
 from .db import create_connection, get_db, init_db
 from .models import row_to_dict
+from .resource_config import load_booking_objects
 from .schemas import (
     BookRequest,
     BookingsResponse,
@@ -45,6 +46,7 @@ def startup() -> None:
     try:
         init_db(conn)
         load_rfid_cache()
+        load_booking_objects(conn)
     finally:
         conn.close()
 
