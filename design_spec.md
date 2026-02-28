@@ -128,7 +128,7 @@ Responsibilities:
 
 ## Deployment
 - Railway hosting
-- Environment variables: `GITHUB_TOKEN`, `CSV_URL`, `SESSION_SECRET`
+- Environment variables: `GITHUB_TOKEN`, `CSV_URL`, `CONFIG_URL`, `SESSION_SECRET`
 - SQLite file in production, in-memory for tests
 - Deploy only after GitHub Actions unit tests pass
 

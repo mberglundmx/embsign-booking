@@ -6,10 +6,9 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 from .config import CSV_URL, GITHUB_TOKEN, SESSION_TTL_SECONDS
+from .github_content import fetch_text
 
 logger = logging.getLogger(__name__)
 
@@ -112,63 +111,15 @@ def _build_apartment_id(house: str, skv_lgh: str) -> str:
     return f"{house}-{skv_lgh}"
 
 
-def _github_url_to_api(url: str) -> str:
-    """Convert a github.com web URL to the API raw content URL."""
-    parsed = urlparse(url)
-    if parsed.hostname == "api.github.com":
-        return url
-    if parsed.hostname == "raw.githubusercontent.com":
-        parts = parsed.path.strip("/").split("/")
-        if len(parts) >= 3:
-            owner, repo = parts[0], parts[1]
-            branch_and_path = "/".join(parts[2:])
-            if "/" in branch_and_path:
-                branch, _, filepath = branch_and_path.partition("/")
-            else:
-                return url
-            return f"https://api.github.com/repos/{owner}/{repo}/contents/{filepath}?ref={branch}"
-        return url
-    if parsed.hostname == "github.com":
-        parts = parsed.path.strip("/").split("/")
-        if len(parts) >= 5 and parts[2] == "raw":
-            owner, repo = parts[0], parts[1]
-            ref_parts = parts[3:]
-            if ref_parts[0] == "refs" and len(ref_parts) >= 3 and ref_parts[1] == "heads":
-                branch = ref_parts[2]
-                filepath = "/".join(ref_parts[3:])
-            else:
-                branch = ref_parts[0]
-                filepath = "/".join(ref_parts[1:])
-            return f"https://api.github.com/repos/{owner}/{repo}/contents/{filepath}?ref={branch}"
-        if len(parts) >= 5 and parts[2] == "blob":
-            owner, repo = parts[0], parts[1]
-            branch = parts[3]
-            filepath = "/".join(parts[4:])
-            return f"https://api.github.com/repos/{owner}/{repo}/contents/{filepath}?ref={branch}"
-    return url
-
-
 def load_rfid_cache() -> None:
     if not CSV_URL:
         return
 
-    api_url = _github_url_to_api(CSV_URL)
-    headers = {"Accept": "application/vnd.github.v3.raw"}
-    if GITHUB_TOKEN:
-        headers["Authorization"] = f"token {GITHUB_TOKEN}"
-    request = Request(api_url, headers=headers)
-
     try:
-        with urlopen(request, timeout=15) as response:
-            raw_bytes = response.read()
+        raw = fetch_text(CSV_URL, github_token=GITHUB_TOKEN)
     except Exception:
-        logger.exception("Failed to fetch RFID CSV from %s", api_url)
+        logger.exception("Failed to fetch RFID CSV from %s", CSV_URL)
         return
-
-    try:
-        raw = raw_bytes.decode("utf-8")
-    except UnicodeDecodeError:
-        raw = raw_bytes.decode("latin-1")
 
     lines = raw.splitlines()
     if not lines:
