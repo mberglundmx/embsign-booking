@@ -91,7 +91,7 @@ def rfid_login(payload: RFIDLoginRequest, response: Response, conn=Depends(get_d
     if row is None:
         raise HTTPException(status_code=401, detail="inactive_apartment")
     token = create_session(conn, entry.apartment_id, is_admin=False)
-    response.set_cookie("session", token, httponly=True, samesite="lax")
+    response.set_cookie("session", token, httponly=True, samesite="none", secure=True)
     return LoginResponse(booking_url="/booking", apartment_id=entry.apartment_id)
 
 
@@ -105,7 +105,7 @@ def mobile_login(payload: MobileLoginRequest, response: Response, conn=Depends(g
     if row is None or not verify_password(payload.password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="invalid_credentials")
     token = create_session(conn, payload.apartment_id, is_admin=False)
-    response.set_cookie("session", token, httponly=True, samesite="lax")
+    response.set_cookie("session", token, httponly=True, samesite="none", secure=True)
     return LoginResponse(booking_url="/booking", apartment_id=payload.apartment_id)
 
 
