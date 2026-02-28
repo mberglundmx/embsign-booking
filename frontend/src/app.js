@@ -244,6 +244,14 @@ Alpine.data("bookingApp", () => ({
         this.rfidBuffer += event.key;
       }
     });
+    window.addEventListener("paste", (event) => {
+      if (!this.isPosMode || this.isAuthenticated) return;
+      const text = event.clipboardData?.getData("text")?.trim();
+      if (text) {
+        this.rfidInput = text;
+        this.submitRfidInput();
+      }
+    });
     this.rfidListenerBound = true;
   },
 
