@@ -36,7 +36,7 @@ def _derive_booking_yaml_url_from_csv(csv_url: str | None) -> str | None:
     parts = parsed.path.strip("/").split("/")
     if parsed.hostname != "api.github.com":
         return None
-    if len(parts) < 6:
+    if len(parts) < 5:
         return None
     if parts[0] != "repos" or parts[3] != "contents":
         return None
