@@ -133,7 +133,11 @@ def _github_url_to_api(url: str) -> str:
         if len(parts) >= 5 and parts[2] == "raw":
             owner, repo = parts[0], parts[1]
             ref_parts = parts[3:]
-            if ref_parts[0] == "refs" and len(ref_parts) >= 3 and ref_parts[1] == "heads":
+            if (
+                ref_parts[0] == "refs"
+                and len(ref_parts) >= 3
+                and ref_parts[1] == "heads"
+            ):
                 branch = ref_parts[2]
                 filepath = "/".join(ref_parts[3:])
             else:
@@ -193,9 +197,7 @@ def load_rfid_cache() -> None:
             continue
 
         active = status_str == "0"
-        access_groups = [
-            g.strip() for g in access_groups_raw.split("|") if g.strip()
-        ]
+        access_groups = [g.strip() for g in access_groups_raw.split("|") if g.strip()]
         apartment_id = _build_apartment_id(parsed["house"], parsed["skv_lgh"])
 
         cache[rfid_uid] = RfidEntry(
@@ -239,8 +241,13 @@ def ensure_apartment(conn, entry: RfidEntry) -> None:
         ),
     )
     conn.commit()
-    logger.info("Auto-created apartment %s (house=%s, lgh=%s, skv=%s)",
-                entry.apartment_id, entry.house, entry.lgh_internal, entry.skv_lgh)
+    logger.info(
+        "Auto-created apartment %s (house=%s, lgh=%s, skv=%s)",
+        entry.apartment_id,
+        entry.house,
+        entry.lgh_internal,
+        entry.skv_lgh,
+    )
 
 
 def check_rate_limit() -> None:

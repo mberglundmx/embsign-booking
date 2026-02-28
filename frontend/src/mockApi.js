@@ -4,27 +4,27 @@ const initialResources = [
     name: "Tvättstuga 1",
     booking_type: "time-slot",
     price_cents: 0,
-    is_billable: false
+    is_billable: false,
   },
   {
     id: 2,
     name: "Tvättstuga 2",
     booking_type: "full-day",
     price_cents: 0,
-    is_billable: false
+    is_billable: false,
   },
   {
     id: 3,
     name: "Gästlägenhet",
     booking_type: "full-day",
     price_cents: 25000,
-    is_billable: true
-  }
+    is_billable: true,
+  },
 ];
 
 const initialUsers = [
   { apartment_id: "1001", password: "1234" },
-  { apartment_id: "1002", password: "" }
+  { apartment_id: "1002", password: "" },
 ];
 
 let resources = structuredClone(initialResources);
@@ -66,7 +66,7 @@ function hasOverlap(resourceId, apartmentId, startTime, endTime) {
     (booking) =>
       (booking.resource_id === resourceId || booking.apartment_id === apartmentId) &&
       booking.start_time < endTime &&
-      booking.end_time > startTime
+      booking.end_time > startTime,
   );
 }
 
@@ -83,8 +83,8 @@ export function resetMockState() {
       resource_id: 1,
       start_time: start,
       end_time: end,
-      is_billable: false
-    }
+      is_billable: false,
+    },
   ];
 }
 
@@ -119,8 +119,8 @@ export function getSlots(resourceId, date) {
         resource_id: resource.id,
         start_time: start,
         end_time: end,
-        is_booked: booked
-      }
+        is_booked: booked,
+      },
     ];
   }
   return buildHourlySlots(date).map(({ start, end }) => {
@@ -129,7 +129,7 @@ export function getSlots(resourceId, date) {
       resource_id: resource.id,
       start_time: start,
       end_time: end,
-      is_booked: booked
+      is_booked: booked,
     };
   });
 }
@@ -147,7 +147,7 @@ export function getBookings(apartmentId = activeApartmentId) {
         end_time: booking.end_time,
         is_billable: booking.is_billable,
         booking_type: resource?.booking_type ?? "time-slot",
-        price_cents: resource?.price_cents ?? 0
+        price_cents: resource?.price_cents ?? 0,
       };
     });
 }
@@ -166,7 +166,7 @@ export function bookSlot(payload) {
     resource_id: resourceId,
     start_time: payload.start_time,
     end_time: payload.end_time,
-    is_billable: Boolean(payload.is_billable)
+    is_billable: Boolean(payload.is_billable),
   };
   bookings = [booking, ...bookings];
   return { booking_id: booking.id };

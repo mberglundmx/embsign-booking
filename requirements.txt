@@ -1,4 +1,6 @@
 fastapi
 uvicorn
 pytest
+pytest-cov
 httpx
+ruff

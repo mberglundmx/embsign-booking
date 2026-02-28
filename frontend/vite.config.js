@@ -3,13 +3,13 @@ import { defineConfig } from "vite";
 export default defineConfig({
   root: ".",
   build: {
-    outDir: "dist"
+    outDir: "dist",
   },
   server: {
     port: 5173,
-    strictPort: true
+    strictPort: true,
   },
   test: {
-    environment: "jsdom"
-  }
+    environment: "jsdom",
+  },
 });

@@ -31,7 +31,9 @@ def test_rfid_login_auto_creates_apartment(client, db_conn):
     response = client.post("/rfid-login", json={"uid": "NEWUID"})
     assert response.status_code == 200
     assert response.json()["apartment_id"] == "1-1201"
-    row = db_conn.execute("SELECT * FROM apartments WHERE id = ?", ("1-1201",)).fetchone()
+    row = db_conn.execute(
+        "SELECT * FROM apartments WHERE id = ?", ("1-1201",)
+    ).fetchone()
     assert row is not None
     assert row["house"] == "1"
     assert row["lgh_internal"] == "1013"
@@ -81,7 +83,11 @@ def test_slots_excludes_booked(client, db_conn, seeded_apartment, seeded_resourc
     assert response.status_code == 200
     slots = response.json()["slots"]
     booked_slot = next(
-        (slot for slot in slots if slot["start_time"] == start and slot["end_time"] == end),
+        (
+            slot
+            for slot in slots
+            if slot["start_time"] == start and slot["end_time"] == end
+        ),
         None,
     )
     assert booked_slot is not None
@@ -144,7 +150,9 @@ def test_book_overlap_conflict(client, db_conn, seeded_apartment, seeded_resourc
     assert conflict.status_code == 409
 
 
-def test_admin_calendar_requires_admin(client, db_conn, seeded_apartment, seeded_resource):
+def test_admin_calendar_requires_admin(
+    client, db_conn, seeded_apartment, seeded_resource
+):
     user_token = create_session(db_conn, seeded_apartment, is_admin=False)
     response = client.get("/admin/calendar", cookies={"session": user_token})
     assert response.status_code == 403

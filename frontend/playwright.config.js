@@ -5,14 +5,14 @@ export default defineConfig({
   timeout: 30000,
   use: {
     baseURL: "http://localhost:5173",
-    trace: "on-first-retry"
+    trace: "on-first-retry",
   },
   webServer: {
     command: "npm run dev",
     url: "http://localhost:5173",
     reuseExistingServer: !process.env.CI,
     env: {
-      VITE_USE_MOCKS: "true"
-    }
-  }
+      VITE_USE_MOCKS: "true",
+    },
+  },
 });

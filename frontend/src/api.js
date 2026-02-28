@@ -5,9 +5,9 @@ async function request(path, options = {}) {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(options.headers ?? {})
+      ...(options.headers ?? {}),
     },
-    ...options
+    ...options,
   });
 
   if (!response.ok) {
@@ -30,14 +30,14 @@ async function request(path, options = {}) {
 export async function loginWithRfid(uid) {
   return request("/rfid-login", {
     method: "POST",
-    body: JSON.stringify({ uid })
+    body: JSON.stringify({ uid }),
   });
 }
 
 export async function loginWithPassword(apartmentId, password) {
   return request("/mobile-login", {
     method: "POST",
-    body: JSON.stringify({ apartment_id: apartmentId, password })
+    body: JSON.stringify({ apartment_id: apartmentId, password }),
   });
 }
 
@@ -62,13 +62,13 @@ export async function getSlots(resourceId, date) {
 export async function bookSlot(payload) {
   return request("/book", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
 }
 
 export async function cancelBooking(bookingId) {
   return request("/cancel", {
     method: "DELETE",
-    body: JSON.stringify({ booking_id: bookingId })
+    body: JSON.stringify({ booking_id: bookingId }),
   });
 }

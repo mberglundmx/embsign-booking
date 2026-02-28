@@ -14,7 +14,6 @@ from .auth import (
 from .booking import admin_calendar, cancel_booking, create_booking, list_slots
 from .config import DATABASE_PATH, FRONTEND_ORIGINS
 from .db import create_connection, get_db, init_db
-from .models import row_to_dict
 from .schemas import (
     BookRequest,
     BookingsResponse,
@@ -151,7 +150,9 @@ def book(payload: BookRequest, session=Depends(require_session), conn=Depends(ge
 
 
 @app.delete("/cancel")
-def cancel(payload: CancelRequest, session=Depends(require_session), conn=Depends(get_db)):
+def cancel(
+    payload: CancelRequest, session=Depends(require_session), conn=Depends(get_db)
+):
     ok = cancel_booking(
         conn, payload.booking_id, session["apartment_id"], bool(session["is_admin"])
     )

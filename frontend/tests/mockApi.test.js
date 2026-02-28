@@ -5,7 +5,7 @@ import {
   getSlots,
   loginWithPassword,
   loginWithRfid,
-  resetMockState
+  resetMockState,
 } from "../src/mockApi";
 
 describe("mockApi", () => {
@@ -33,7 +33,7 @@ describe("mockApi", () => {
       resource_id: 1,
       start_time: slot.start_time,
       end_time: slot.end_time,
-      is_billable: false
+      is_billable: false,
     });
     expect(first.booking_id).toBeTruthy();
 
@@ -43,8 +43,8 @@ describe("mockApi", () => {
         resource_id: 1,
         start_time: slot.start_time,
         end_time: slot.end_time,
-        is_billable: false
-      })
+        is_billable: false,
+      }),
     ).toThrow();
   });
 

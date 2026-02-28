@@ -11,4 +11,4 @@ frontend/coverage-html
 frontend/coverage-lcov
 frontend/coverage-lcov-html
 frontend/coverage-lcov-html
-*.pyc
+*.pyc.coverage

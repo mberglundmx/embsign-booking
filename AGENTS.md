@@ -24,8 +24,23 @@ This is a BRF Laundry Booking System with a Python/FastAPI backend and a Vite/Al
   "
   ```
   For POS mode, set `VITE_RFID_UID` to a real UID from the CSV (e.g., `00000003666340236` for apartment 1-LGH1013/1201).
-- **Backend tests**: Run `CSV_URL="" pytest` from the repo root. Tests use in-memory SQLite and override the DB dependency, so no seeding is needed.
-- **Frontend unit tests**: Run `npx vitest run --dir tests` in `frontend/`. The default `npm run test` / `npx vitest run` will also pick up Playwright spec files which causes an error; use `--dir tests` to scope to unit tests only.
-- **Frontend build**: `npm run build` in `frontend/`.
-- **Playwright E2E tests**: `npm run test:ui` in `frontend/`. Requires `npx playwright install` first. The Playwright config sets `VITE_USE_MOCKS=true` so no backend is needed.
-- **`~/.local/bin` on PATH**: pip installs CLI tools (uvicorn, pytest, etc.) to `~/.local/bin`. Ensure it is on `PATH` (already added in the update script).
+- **`~/.local/bin` on PATH**: pip installs CLI tools (uvicorn, pytest, ruff, etc.) to `~/.local/bin`. Ensure it is on `PATH` (already added in the update script).
+
+### Lint & format
+
+| Scope | Command | Notes |
+|---|---|---|
+| Backend lint | `ruff check app/ tests/` | Fix with `--fix` |
+| Backend format | `ruff format app/ tests/` | Check only: `ruff format --check app/ tests/` |
+| Frontend lint | `npm run lint` (in `frontend/`) | Fix with `npm run lint:fix` |
+| Frontend format | `npm run format:check` (in `frontend/`) | Fix with `npm run format` |
+
+### Tests
+
+| Scope | Command | Notes |
+|---|---|---|
+| Backend | `CSV_URL="" pytest` | In-memory SQLite, no seeding needed |
+| Backend + coverage | `CSV_URL="" pytest --cov=app` | |
+| Frontend unit | `npm run test:coverage` (in `frontend/`) | Runs vitest with v8 coverage; uses `--dir tests` to skip Playwright specs |
+| Frontend E2E | `npm run test:ui` (in `frontend/`) | Requires `npx playwright install`. Uses `VITE_USE_MOCKS=true`, no backend needed |
+| Frontend build | `npm run build` (in `frontend/`) | |

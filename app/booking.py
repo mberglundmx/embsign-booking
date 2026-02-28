@@ -12,7 +12,9 @@ def to_iso(dt: datetime) -> str:
     return dt.isoformat()
 
 
-def has_overlap(conn, resource_id: int, apartment_id: str, start: str, end: str) -> bool:
+def has_overlap(
+    conn, resource_id: int, apartment_id: str, start: str, end: str
+) -> bool:
     row = conn.execute(
         """
         SELECT 1 FROM bookings
@@ -59,7 +61,9 @@ def create_booking(
     return int(cursor.lastrowid)
 
 
-def cancel_booking(conn, booking_id: int, apartment_id: Optional[str], is_admin: bool) -> bool:
+def cancel_booking(
+    conn, booking_id: int, apartment_id: Optional[str], is_admin: bool
+) -> bool:
     if is_admin:
         cursor = conn.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
     else:
