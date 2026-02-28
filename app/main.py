@@ -1,0 +1,171 @@
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from .auth import (
+    check_rate_limit,
+    create_session,
+    get_session,
+    load_rfid_cache,
+    lookup_rfid,
+    verify_password,
+)
+from .booking import admin_calendar, cancel_booking, create_booking, list_slots
+from .config import DATABASE_PATH, FRONTEND_ORIGINS
+from .db import create_connection, get_db, init_db
+from .models import row_to_dict
+from .schemas import (
+    BookRequest,
+    BookingsResponse,
+    BookingResponse,
+    CancelRequest,
+    LoginResponse,
+    MobileLoginRequest,
+    RFIDLoginRequest,
+    ResourcesResponse,
+)
+
+app = FastAPI(title="BRF Laundry Booking")
+
+origins = [origin.strip() for origin in FRONTEND_ORIGINS.split(",") if origin.strip()]
+if origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.on_event("startup")
+def startup() -> None:
+    conn = create_connection(DATABASE_PATH)
+    try:
+        init_db(conn)
+        load_rfid_cache()
+    finally:
+        conn.close()
+
+
+def require_session(
+    session: str = Cookie(default=""),
+    conn=Depends(get_db),
+):
+    data = get_session(conn, session)
+    if data is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return data
+
+
+@app.post("/rfid-login", response_model=LoginResponse)
+def rfid_login(payload: RFIDLoginRequest, response: Response, conn=Depends(get_db)):
+    check_rate_limit()
+    mapping = lookup_rfid(payload.uid)
+    if mapping is None or not mapping[1]:
+        raise HTTPException(status_code=401, detail="invalid_rfid")
+    apartment_id = mapping[0]
+    row = conn.execute(
+        "SELECT * FROM apartments WHERE id = ? AND is_active = 1",
+        (apartment_id,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=401, detail="inactive_apartment")
+    token = create_session(conn, apartment_id, is_admin=False)
+    response.set_cookie("session", token, httponly=True, samesite="lax")
+    return LoginResponse(booking_url="/booking", apartment_id=apartment_id)
+
+
+@app.post("/mobile-login", response_model=LoginResponse)
+def mobile_login(payload: MobileLoginRequest, response: Response, conn=Depends(get_db)):
+    check_rate_limit()
+    row = conn.execute(
+        "SELECT * FROM apartments WHERE id = ? AND is_active = 1",
+        (payload.apartment_id,),
+    ).fetchone()
+    if row is None or not verify_password(payload.password, row["password_hash"]):
+        raise HTTPException(status_code=401, detail="invalid_credentials")
+    token = create_session(conn, payload.apartment_id, is_admin=False)
+    response.set_cookie("session", token, httponly=True, samesite="lax")
+    return LoginResponse(booking_url="/booking", apartment_id=payload.apartment_id)
+
+
+@app.get("/slots")
+def get_slots(
+    resource_id: int | None = None,
+    date: str | None = None,
+    session=Depends(require_session),
+    conn=Depends(get_db),
+):
+    _ = session
+    return {"slots": list_slots(conn, resource_id, date)}
+
+
+@app.get("/resources", response_model=ResourcesResponse)
+def list_resources(session=Depends(require_session), conn=Depends(get_db)):
+    _ = session
+    rows = conn.execute(
+        """
+        SELECT id, name, booking_type, price_cents, is_billable
+        FROM resources
+        WHERE is_active = 1
+        ORDER BY id ASC
+        """
+    ).fetchall()
+    return {"resources": [dict(row) for row in rows]}
+
+
+@app.get("/bookings", response_model=BookingsResponse)
+def list_bookings(session=Depends(require_session), conn=Depends(get_db)):
+    rows = conn.execute(
+        """
+        SELECT b.id, b.resource_id, b.start_time, b.end_time, b.is_billable,
+               r.name AS resource_name, r.booking_type, r.price_cents
+        FROM bookings b
+        JOIN resources r ON r.id = b.resource_id
+        WHERE b.apartment_id = ?
+        ORDER BY b.start_time ASC
+        """,
+        (session["apartment_id"],),
+    ).fetchall()
+    return {"bookings": [dict(row) for row in rows]}
+
+
+@app.post("/book", response_model=BookingResponse)
+def book(payload: BookRequest, session=Depends(require_session), conn=Depends(get_db)):
+    if not session["is_admin"] and payload.apartment_id != session["apartment_id"]:
+        raise HTTPException(status_code=403, detail="forbidden")
+    try:
+        booking_id = create_booking(
+            conn,
+            payload.apartment_id,
+            payload.resource_id,
+            payload.start_time,
+            payload.end_time,
+            bool(payload.is_billable),
+        )
+    except ValueError:
+        raise HTTPException(status_code=409, detail="overlap")
+    return BookingResponse(booking_id=booking_id)
+
+
+@app.delete("/cancel")
+def cancel(payload: CancelRequest, session=Depends(require_session), conn=Depends(get_db)):
+    ok = cancel_booking(
+        conn, payload.booking_id, session["apartment_id"], bool(session["is_admin"])
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="not_found")
+    return JSONResponse({"status": "ok"})
+
+
+@app.get("/admin/calendar")
+def calendar(session=Depends(require_session), conn=Depends(get_db)):
+    if not session["is_admin"]:
+        raise HTTPException(status_code=403, detail="forbidden")
+    return {"bookings": admin_calendar(conn)}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}

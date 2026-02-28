@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BRF Bokning</title>
+    <link rel="stylesheet" href="/src/app.css" />
+  </head>
+  <body
+    class="min-h-screen bg-slate-50 text-slate-900"
+    x-data="bookingApp()"
+    x-init="init()"
+  >
+    <header class="border-b border-slate-200 bg-white">
+      <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+        <div class="flex items-center gap-3">
+          <div class="h-10 w-10 rounded-2xl bg-brand-600"></div>
+          <div>
+            <p class="text-lg font-semibold">BRF Bokning</p>
+            <p class="text-sm text-slate-500">Tvättstuga och resurser</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            class="btn btn-secondary"
+            :class="isPosMode ? 'border-brand-600 text-brand-700' : ''"
+            @click="setMode('pos')"
+            data-testid="mode-pos"
+          >
+            POS-läge
+          </button>
+          <button
+            class="btn btn-secondary"
+            :class="!isPosMode ? 'border-brand-600 text-brand-700' : ''"
+            @click="setMode('desktop')"
+            data-testid="mode-desktop"
+          >
+            Desktop/Mobil
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-8">
+      <section
+        class="card flex flex-col gap-6"
+        x-show="!isAuthenticated"
+        x-transition
+        data-testid="login-card"
+      >
+        <div class="flex items-start justify-between gap-6">
+          <div>
+            <p class="card-title">Välkommen</p>
+            <p class="text-sm text-slate-600">
+              Logga in för att se bokningar och boka objekt.
+            </p>
+          </div>
+          <div class="rounded-full bg-brand-50 px-4 py-2 text-sm text-brand-700">
+            Enkel och tydlig vy
+          </div>
+        </div>
+
+        <template x-if="isPosMode">
+          <div class="flex flex-col items-start gap-4">
+            <p class="text-base text-slate-700">
+              POS-terminal: håll upp din bricka för att logga in.
+            </p>
+            <button
+              class="btn btn-primary btn-pos w-full sm:w-auto"
+              @click="loginPos"
+              :disabled="loading"
+              data-testid="pos-login"
+            >
+              Visa bricka
+            </button>
+            <p class="text-sm text-slate-500">
+              Systemet loggar ut automatiskt efter inaktivitet.
+            </p>
+          </div>
+        </template>
+
+        <template x-if="!isPosMode">
+          <form class="grid gap-4 md:grid-cols-2" @submit.prevent="loginPassword">
+            <label class="flex flex-col gap-2">
+              <span class="text-sm font-medium">Användar-ID</span>
+              <input
+                class="input"
+                type="text"
+                placeholder="t.ex. 1001"
+                x-model="userIdInput"
+                required
+                data-testid="login-userid"
+              />
+            </label>
+            <label class="flex flex-col gap-2">
+              <span class="text-sm font-medium">Lösenord</span>
+              <input
+                class="input"
+                type="password"
+                placeholder="••••"
+                x-model="passwordInput"
+                required
+                data-testid="login-password"
+              />
+            </label>
+            <div class="md:col-span-2 flex flex-col gap-3">
+              <button
+                class="btn btn-primary w-full sm:w-auto"
+                type="submit"
+                :disabled="loading"
+                data-testid="desktop-login"
+              >
+                Logga in
+              </button>
+              <p class="text-sm text-slate-500">
+                Om du saknar lösenord, gå till en POS-terminal för registrering.
+              </p>
+            </div>
+          </form>
+        </template>
+
+        <p class="text-sm text-rose-600" x-show="errorMessage" x-text="errorMessage"></p>
+      </section>
+
+      <section class="flex flex-col gap-6" x-show="isAuthenticated" x-transition>
+        <div class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-6 py-4">
+          <p class="text-sm text-slate-600">Inloggad som <span class="font-semibold" x-text="userId"></span></p>
+          <button class="btn btn-secondary" @click="logout" data-testid="logout">
+            Logga ut
+          </button>
+        </div>
+
+        <div class="card">
+            <p class="card-title">Boka objekt</p>
+            <p class="text-sm text-slate-500">Välj ett objekt för att se tillgängliga tider.</p>
+            <div class="mt-4 grid gap-3 md:grid-cols-3">
+              <template x-for="resource in resources" :key="resource.id">
+                <button
+                  class="rounded-2xl border px-4 py-4 text-left transition"
+                  :class="resource.id === selectedResourceId ? 'border-brand-600 bg-brand-50' : 'border-slate-200 bg-white hover:border-brand-300'"
+                  @click="selectResource(resource.id)"
+                  data-testid="resource-card"
+                >
+                  <p class="text-sm font-semibold" x-text="resource.name"></p>
+                  <p class="text-xs text-slate-500" x-text="resource.bookingType === 'full-day' ? 'Heldag' : 'Timpass'"></p>
+                  <p class="text-xs text-slate-500" x-show="resource.price > 0">
+                    Debitering: <span x-text="resource.price"></span> kr
+                  </p>
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="flex items-center justify-between">
+              <p class="card-title">Tillgängliga tider</p>
+              <p class="text-sm text-slate-500" x-text="selectedResource?.name"></p>
+            </div>
+
+            <template x-if="selectedResource?.bookingType === 'full-day'">
+              <div class="mt-4 overflow-x-auto">
+                <div class="grid min-w-[720px] grid-cols-7 gap-2 text-center text-xs font-semibold text-slate-500">
+                  <template x-for="label in weekdayLabels" :key="label">
+                    <div class="py-1" x-text="label"></div>
+                  </template>
+                </div>
+                <div class="mt-2 grid min-w-[720px] grid-cols-7 gap-2">
+                  <template x-for="(day, index) in getFullDayCalendar()" :key="day.date ?? `pad-${index}`">
+                    <div
+                      class="rounded-2xl border p-3"
+                      :class="day.isPadding ? 'border-transparent bg-transparent' : day.booked ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50'"
+                    >
+                      <template x-if="!day.isPadding">
+                        <div>
+                          <p class="text-sm font-semibold" x-text="day.label"></p>
+                          <p class="text-xs text-slate-500">Heldag</p>
+                          <button
+                            class="btn mt-3 w-full text-white"
+                            :class="day.booked ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'"
+                            :disabled="day.booked"
+                            @click="openConfirmBooking({ type: 'full-day', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day.date })"
+                            data-testid="book-day"
+                          >
+                            <span x-text="day.booked ? 'Upptagen' : 'Boka'"></span>
+                          </button>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+
+            <template x-if="selectedResource?.bookingType === 'time-slot'">
+              <div class="mt-4 flex flex-col gap-2">
+                <div
+                  class="time-grid items-stretch gap-2 text-center text-xs font-semibold text-slate-600"
+                  :style="`grid-template-columns: 7rem repeat(${timeSlotDays.length}, minmax(0, 1fr)) 3rem;`"
+                >
+                  <button
+                    class="btn w-12 justify-self-center bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    @click="navigateTimeSlots(-1)"
+                    :disabled="!canNavigateTimeSlotsBack"
+                    aria-label="Föregående dagar"
+                  >
+                    &lt;
+                  </button>
+                  <template x-for="day in timeSlotDays" :key="day">
+                    <div
+                      class="rounded-xl border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                      :class="getDayHeaderParts(day).isSunday ? 'bg-slate-200' : getDayHeaderParts(day).isSaturday ? 'bg-slate-100' : 'bg-white'"
+                    >
+                      <span class="block text-sm font-semibold" x-text="getDayHeaderParts(day).weekday"></span>
+                      <span class="block text-sm font-semibold" x-text="getDayHeaderParts(day).dateLabel"></span>
+                    </div>
+                  </template>
+                  <button
+                    class="btn w-12 justify-self-center bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    @click="navigateTimeSlots(1)"
+                    :disabled="!canNavigateTimeSlotsForward"
+                    aria-label="Nästa dagar"
+                  >
+                    &gt;
+                  </button>
+                </div>
+                <template x-for="slot in getTimeSlotLabels()" :key="slot.id">
+                  <div
+                    class="time-grid items-stretch gap-2"
+                    :style="`grid-template-columns: 7rem repeat(${timeSlotDays.length}, minmax(0, 1fr)) 3rem;`"
+                  >
+                    <div
+                      class="rounded-xl border border-slate-200 bg-white px-3 py-4 text-base font-semibold text-slate-700"
+                    >
+                      <p class="text-left leading-5">
+                        <span class="block" x-text="getSlotLabelParts(slot.label).start"></span>
+                        <span class="block" x-text="getSlotLabelParts(slot.label).end"></span>
+                      </p>
+                    </div>
+                    <template x-for="day in timeSlotDays" :key="`${day}-${slot.id}`">
+                      <button
+                        class="w-full rounded-xl border px-3 py-4 text-sm font-semibold transition"
+                        :class="isTimeSlotBooked(day, slot.id) ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
+                        :disabled="isTimeSlotBooked(day, slot.id)"
+                        @click="openConfirmBooking({ type: 'time-slot', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day, slotId: slot.id, slotLabel: slot.label })"
+                        data-testid="book-slot"
+                      >
+                        <span x-text="isTimeSlotBooked(day, slot.id) ? 'Upptagen' : 'Ledig'"></span>
+                      </button>
+                    </template>
+                    <div></div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+
+        <details class="card" data-testid="booking-list">
+          <summary class="cursor-pointer text-lg font-semibold text-slate-900">Mina bokningar</summary>
+          <div class="mt-4 space-y-3" x-show="bookings.length">
+            <template x-for="booking in bookings" :key="booking.id">
+              <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3">
+                <div>
+                  <p class="text-sm font-semibold" x-text="booking.resourceName"></p>
+                  <p class="text-xs text-slate-500">
+                    <span x-text="formatDayLong(booking.date)"></span>
+                    <template x-if="booking.slotLabel">
+                      <span> • <span x-text="booking.slotLabel"></span></span>
+                    </template>
+                  </p>
+                </div>
+                <button
+                  class="btn btn-danger"
+                  @click="openConfirmCancel(booking)"
+                  data-testid="cancel-booking"
+                >
+                  Avboka
+                </button>
+              </div>
+            </template>
+          </div>
+          <p class="mt-4 text-sm text-slate-500" x-show="!bookings.length">
+            Inga bokningar ännu.
+          </p>
+        </details>
+      </section>
+    </main>
+
+    <div
+      class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 px-4"
+      x-show="confirm.open"
+      x-transition
+      data-testid="confirm-modal"
+    >
+      <div class="card w-full max-w-md">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="card-title" x-text="confirm.title"></p>
+            <p class="mt-2 text-sm text-slate-600" x-text="confirm.message"></p>
+          </div>
+          <button class="text-slate-400" @click="closeConfirm">✕</button>
+        </div>
+        <div class="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600" x-show="confirm.price > 0">
+          Debitering: <span class="font-semibold" x-text="confirm.price"></span> kr
+        </div>
+        <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <button class="btn btn-secondary" @click="closeConfirm" data-testid="confirm-cancel">
+            Avbryt
+          </button>
+          <button class="btn btn-primary" @click="confirmAction" data-testid="confirm-ok">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/app.js"></script>
+  </body>
+</html>

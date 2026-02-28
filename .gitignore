@@ -1,0 +1,14 @@
+app.db
+.venv
+.pytest_cache
+app/__pycache__
+frontend/node_modules
+frontend/test-results
+frontend/dist
+frontend/build
+frontend/coverage
+frontend/coverage-html
+frontend/coverage-lcov
+frontend/coverage-lcov-html
+frontend/coverage-lcov-html
+*.pyc
