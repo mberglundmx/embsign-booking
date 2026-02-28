@@ -239,12 +239,16 @@
                     <template x-for="day in timeSlotDays" :key="`${day}-${slot.id}`">
                       <button
                         class="w-full rounded-xl border px-3 py-4 text-sm font-semibold transition"
-                        :class="isTimeSlotBooked(day, slot.id) ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
-                        :disabled="isTimeSlotBooked(day, slot.id)"
+                        :class="isTimeSlotPast(day, slot.id)
+                          ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-500'
+                          : isTimeSlotBooked(day, slot.id)
+                            ? 'border-rose-200 bg-rose-50 text-rose-700'
+                            : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
+                        :disabled="isTimeSlotDisabled(day, slot.id)"
                         @click="openConfirmBooking({ type: 'time-slot', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day, slotId: slot.id, slotLabel: slot.label })"
                         data-testid="book-slot"
                       >
-                        <span x-text="isTimeSlotBooked(day, slot.id) ? 'Upptagen' : 'Ledig'"></span>
+                        <span x-text="isTimeSlotPast(day, slot.id) ? 'Passerad' : isTimeSlotBooked(day, slot.id) ? 'Upptagen' : 'Ledig'"></span>
                       </button>
                     </template>
                     <div></div>

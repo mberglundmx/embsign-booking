@@ -126,6 +126,36 @@ def _hour_in_range(value: Any, default: int, *, min_value: int, max_value: int) 
     return hour
 
 
+def _to_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    seen: set[str] = set()
+    results: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(text)
+    return results
+
+
+def _read_access_list(obj: dict[str, Any], *keys: str) -> list[str]:
+    current: Any = obj
+    for key in keys:
+        if not isinstance(current, dict):
+            return []
+        current = current.get(key)
+    return _to_string_list(current)
+
+
+def _encode_rule_values(values: list[str]) -> str:
+    return "|".join(values)
+
+
 def _extract_bookable_objects(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, dict):
         objects = payload.get("bookable_objects")
@@ -194,6 +224,11 @@ def load_booking_objects(conn, config_url: str | None = None) -> int:
             slot_start_hour = 6
             slot_end_hour = 22
         max_future_days = _max_future_days(obj.get("max_future"))
+        access = obj.get("access")
+        if not isinstance(access, dict):
+            access = {}
+        allow_houses = _read_access_list(access, "allow", "house")
+        deny_apartments = _read_access_list(access, "deny", "apartment")
         conn.execute(
             """
             INSERT INTO resources (
@@ -203,11 +238,13 @@ def load_booking_objects(conn, config_url: str | None = None) -> int:
                 slot_start_hour,
                 slot_end_hour,
                 max_future_days,
+                allow_houses,
+                deny_apartment_ids,
                 is_active,
                 price_cents,
                 is_billable
             )
-            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             """,
             (
                 name,
@@ -216,6 +253,8 @@ def load_booking_objects(conn, config_url: str | None = None) -> int:
                 slot_start_hour,
                 slot_end_hour,
                 max_future_days,
+                _encode_rule_values(allow_houses),
+                _encode_rule_values(deny_apartments),
                 price_cents,
                 is_billable,
             ),

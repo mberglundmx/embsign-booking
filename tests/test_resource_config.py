@@ -10,6 +10,41 @@ bookable_objects:
     end_time: 20
     max_future: 14d
     cost: 0
+    access:
+      allow:
+        house:
+          - 1
+          - " 1 "
+      deny:
+        apartment:
+          - 1-1001
+          - "1-1001"
+  - name: Gästlägenhet
+    type: daily
+    max_future: 90d
+    access:
+      deny:
+        apartment:
+          - 1-1002
+    cost:
+      weekday: 200
+      weekend: 300
+"""
+
+
+SAMPLE_BOOKING_YAML_WITHOUT_DUPES = """
+bookable_objects:
+  - name: Tvättstuga Hus 1
+    type: hourslots
+    time: 2h
+    start_time: 8
+    end_time: 20
+    max_future: 14d
+    cost: 0
+    access:
+      allow:
+        house:
+          - 1
   - name: Gästlägenhet
     type: daily
     max_future: 90d
@@ -34,7 +69,7 @@ def test_load_booking_objects_inserts_only_missing_resources(db_conn, monkeypatc
     def fake_fetch(url: str, github_token: str | None):
         calls["url"] = url
         calls["token"] = github_token
-        return SAMPLE_BOOKING_YAML
+        return SAMPLE_BOOKING_YAML_WITHOUT_DUPES
 
     monkeypatch.setattr(resource_config, "CONFIG_URL", "https://example.com/booking.yaml")
     monkeypatch.setattr(resource_config, "CSV_URL", None)
@@ -53,6 +88,8 @@ def test_load_booking_objects_inserts_only_missing_resources(db_conn, monkeypatc
             slot_start_hour,
             slot_end_hour,
             max_future_days,
+            allow_houses,
+            deny_apartment_ids,
             price_cents,
             is_billable
         FROM resources
@@ -70,6 +107,8 @@ def test_load_booking_objects_inserts_only_missing_resources(db_conn, monkeypatc
     assert rows[1]["slot_start_hour"] == 6
     assert rows[1]["slot_end_hour"] == 22
     assert rows[1]["max_future_days"] == 30
+    assert rows[1]["allow_houses"] == ""
+    assert rows[1]["deny_apartment_ids"] == ""
 
 
 def test_load_booking_objects_derives_booking_yaml_url_from_csv_url(db_conn, monkeypatch):
@@ -112,7 +151,9 @@ def test_load_booking_objects_maps_slot_settings_from_yaml(db_conn, monkeypatch)
             slot_duration_minutes,
             slot_start_hour,
             slot_end_hour,
-            max_future_days
+            max_future_days,
+            allow_houses,
+            deny_apartment_ids
         FROM resources
         WHERE name = ?
         """,
@@ -124,6 +165,8 @@ def test_load_booking_objects_maps_slot_settings_from_yaml(db_conn, monkeypatch)
     assert row["slot_start_hour"] == 8
     assert row["slot_end_hour"] == 20
     assert row["max_future_days"] == 14
+    assert row["allow_houses"] == "1"
+    assert row["deny_apartment_ids"] == "1-1001"
 
 
 def test_load_booking_objects_does_nothing_without_urls(db_conn, monkeypatch):

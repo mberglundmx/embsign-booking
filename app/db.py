@@ -30,6 +30,19 @@ def _ensure_resource_schedule_columns(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _ensure_resource_access_columns(conn: sqlite3.Connection) -> None:
+    columns = conn.execute("PRAGMA table_info(resources);").fetchall()
+    col_names = {col["name"] for col in columns}
+    specs = {
+        "allow_houses": "TEXT NOT NULL DEFAULT ''",
+        "deny_apartment_ids": "TEXT NOT NULL DEFAULT ''",
+    }
+    for col, spec in specs.items():
+        if col not in col_names:
+            conn.execute(f"ALTER TABLE resources ADD COLUMN {col} {spec}")
+    conn.commit()
+
+
 def _ensure_apartment_columns(conn: sqlite3.Connection) -> None:
     columns = conn.execute("PRAGMA table_info(apartments);").fetchall()
     col_names = {col["name"] for col in columns}
@@ -52,6 +65,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
     _ensure_resources_booking_type(conn)
     _ensure_resource_schedule_columns(conn)
+    _ensure_resource_access_columns(conn)
     _ensure_apartment_columns(conn)
 
 
