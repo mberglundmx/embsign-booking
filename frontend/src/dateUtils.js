@@ -32,3 +32,26 @@ export function getUtcDayWindow(dateString) {
     endIso: end.toISOString()
   };
 }
+
+const WALL_CLOCK_PATTERN = /(?:T|\s)(\d{2}):(\d{2})/;
+
+export function extractWallClockTime(dateTimeString) {
+  if (typeof dateTimeString !== "string") {
+    return "";
+  }
+  const match = dateTimeString.match(WALL_CLOCK_PATTERN);
+  if (!match) {
+    return "";
+  }
+  const [, hour, minute] = match;
+  return `${hour}:${minute}`;
+}
+
+export function formatWallClockRange(startDateTime, endDateTime) {
+  const start = extractWallClockTime(startDateTime);
+  const end = extractWallClockTime(endDateTime);
+  if (!start && !end) {
+    return "";
+  }
+  return `${start}-${end}`;
+}

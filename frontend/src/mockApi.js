@@ -37,10 +37,6 @@ let users = structuredClone(initialUsers);
 let activeApartmentId = "1001";
 let bookings = [];
 
-function toIso(date) {
-  return date.toISOString();
-}
-
 function getDateString(date) {
   return toLocalDateString(date);
 }
@@ -52,13 +48,13 @@ function buildDaySlots(dateString) {
 
 function buildHourlySlots(dateString) {
   const slots = [];
-  const base = new Date(`${dateString}T06:00:00`);
-  for (let hour = 0; hour < 16; hour += 1) {
-    const start = new Date(base);
-    start.setHours(base.getHours() + hour);
-    const end = new Date(start);
-    end.setHours(start.getHours() + 1);
-    slots.push({ start: toIso(start), end: toIso(end) });
+  for (let hour = 6; hour < 22; hour += 1) {
+    const startHour = String(hour).padStart(2, "0");
+    const endHour = String(hour + 1).padStart(2, "0");
+    slots.push({
+      start: `${dateString}T${startHour}:00:00+00:00`,
+      end: `${dateString}T${endHour}:00:00+00:00`
+    });
   }
   return slots;
 }

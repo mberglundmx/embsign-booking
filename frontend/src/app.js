@@ -1,5 +1,10 @@
 import Alpine from "alpinejs";
-import { getUtcDayWindow, parseLocalDateString, toLocalDateString } from "./dateUtils";
+import {
+  formatWallClockRange,
+  getUtcDayWindow,
+  parseLocalDateString,
+  toLocalDateString
+} from "./dateUtils";
 
 const DEFAULT_MODE = "desktop";
 const FULL_DAY_COUNT = 30;
@@ -64,11 +69,7 @@ function formatDateLong(dateString) {
 }
 
 function formatTimeRange(startIso, endIso) {
-  const formatter = new Intl.DateTimeFormat("sv-SE", {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-  return `${formatter.format(new Date(startIso))}-${formatter.format(new Date(endIso))}`;
+  return formatWallClockRange(startIso, endIso);
 }
 
 function normalizeResources(resources) {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { getUtcDayWindow, parseLocalDateString, toLocalDateString } from "../src/dateUtils";
+import {
+  extractWallClockTime,
+  formatWallClockRange,
+  getUtcDayWindow,
+  parseLocalDateString,
+  toLocalDateString
+} from "../src/dateUtils";
 
 describe("dateUtils", () => {
   it("bygger heldagsfönster med exakta UTC-dygn", () => {
@@ -14,5 +20,16 @@ describe("dateUtils", () => {
     const formatted = toLocalDateString(parsed);
 
     expect(formatted).toBe("2026-03-06");
+  });
+
+  it("visar väggklocka utan tidszonskonvertering", () => {
+    expect(extractWallClockTime("2026-03-06T08:00:00+00:00")).toBe("08:00");
+    expect(extractWallClockTime("2026-03-06T08:00:00+03:00")).toBe("08:00");
+    expect(formatWallClockRange("2026-03-06T08:00:00+00:00", "2026-03-06T10:00:00+00:00")).toBe(
+      "08:00-10:00"
+    );
+    expect(formatWallClockRange("2026-03-06T08:00:00+03:00", "2026-03-06T10:00:00+03:00")).toBe(
+      "08:00-10:00"
+    );
   });
 });
