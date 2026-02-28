@@ -1,3 +1,5 @@
+import { getUtcDayWindow, toLocalDateString } from "./dateUtils";
+
 const initialResources = [
   {
     id: 1,
@@ -40,15 +42,12 @@ function toIso(date) {
 }
 
 function getDateString(date) {
-  return date.toISOString().slice(0, 10);
+  return toLocalDateString(date);
 }
 
 function buildDaySlots(dateString) {
-  const date = new Date(`${dateString}T00:00:00`);
-  const start = new Date(date);
-  const end = new Date(date);
-  end.setDate(end.getDate() + 1);
-  return { start: toIso(start), end: toIso(end) };
+  const { startIso, endIso } = getUtcDayWindow(dateString);
+  return { start: startIso, end: endIso };
 }
 
 function buildHourlySlots(dateString) {
