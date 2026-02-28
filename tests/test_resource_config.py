@@ -9,6 +9,7 @@ bookable_objects:
     start_time: 8
     end_time: 20
     max_future: 14d
+    max_bookings: 2
     cost: 0
     access:
       allow:
@@ -22,6 +23,7 @@ bookable_objects:
   - name: Gästlägenhet
     type: daily
     max_future: 90d
+    max_bookings: 1
     access:
       deny:
         apartment:
@@ -88,6 +90,7 @@ def test_load_booking_objects_inserts_only_missing_resources(db_conn, monkeypatc
             slot_start_hour,
             slot_end_hour,
             max_future_days,
+            max_bookings,
             allow_houses,
             deny_apartment_ids,
             price_cents,
@@ -100,6 +103,7 @@ def test_load_booking_objects_inserts_only_missing_resources(db_conn, monkeypatc
     assert rows[0]["name"] == "Gästlägenhet"
     assert rows[0]["booking_type"] == "full-day"
     assert rows[0]["max_future_days"] == 90
+    assert rows[0]["max_bookings"] == 2
     assert rows[0]["price_cents"] == 20000
     assert rows[0]["is_billable"] == 1
     assert rows[1]["name"] == "Tvättstuga Hus 1"
@@ -107,6 +111,7 @@ def test_load_booking_objects_inserts_only_missing_resources(db_conn, monkeypatc
     assert rows[1]["slot_start_hour"] == 6
     assert rows[1]["slot_end_hour"] == 22
     assert rows[1]["max_future_days"] == 30
+    assert rows[1]["max_bookings"] == 2
     assert rows[1]["allow_houses"] == ""
     assert rows[1]["deny_apartment_ids"] == ""
 
@@ -152,6 +157,7 @@ def test_load_booking_objects_maps_slot_settings_from_yaml(db_conn, monkeypatch)
             slot_start_hour,
             slot_end_hour,
             max_future_days,
+            max_bookings,
             allow_houses,
             deny_apartment_ids
         FROM resources
@@ -165,6 +171,7 @@ def test_load_booking_objects_maps_slot_settings_from_yaml(db_conn, monkeypatch)
     assert row["slot_start_hour"] == 8
     assert row["slot_end_hour"] == 20
     assert row["max_future_days"] == 14
+    assert row["max_bookings"] == 2
     assert row["allow_houses"] == "1"
     assert row["deny_apartment_ids"] == "1-1001"
 

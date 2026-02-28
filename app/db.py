@@ -23,6 +23,7 @@ def _ensure_resource_schedule_columns(conn: sqlite3.Connection) -> None:
         "slot_start_hour": "INTEGER NOT NULL DEFAULT 6",
         "slot_end_hour": "INTEGER NOT NULL DEFAULT 22",
         "max_future_days": "INTEGER NOT NULL DEFAULT 30",
+        "max_bookings": "INTEGER NOT NULL DEFAULT 2",
     }
     for col, spec in specs.items():
         if col not in col_names:

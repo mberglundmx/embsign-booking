@@ -51,6 +51,40 @@ def _has_overlap_in_intervals(
     return any(existing_start < end_dt and existing_end > start_dt for existing_start, existing_end in intervals)
 
 
+def _normalize_max_bookings(raw: object) -> int:
+    try:
+        value = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 2
+    if value <= 0:
+        return 2
+    return value
+
+
+def _get_resource_max_bookings(conn, resource_id: int) -> int | None:
+    row = conn.execute(
+        "SELECT max_bookings FROM resources WHERE id = ? AND is_active = 1",
+        (resource_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return _normalize_max_bookings(row["max_bookings"])
+
+
+def _future_booking_count(conn, apartment_id: str, resource_id: int, now_iso: str) -> int:
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM bookings
+        WHERE apartment_id = ? AND resource_id = ? AND end_time > ?
+        """,
+        (apartment_id, resource_id, now_iso),
+    ).fetchone()
+    if row is None:
+        return 0
+    return int(row["count"])
+
+
 def _split_rule_values(raw: str | None) -> list[str]:
     if not raw:
         return []
@@ -143,6 +177,14 @@ def create_booking(
     start_dt, end_dt, start_iso, end_iso = _normalize_range(start_time, end_time)
     if has_overlap(conn, resource_id, apartment_id, to_iso(start_dt), to_iso(end_dt)):
         raise ValueError("overlap")
+    max_bookings = _get_resource_max_bookings(conn, resource_id)
+    if max_bookings is None:
+        raise PermissionError("resource_forbidden")
+    now_utc = _now_utc()
+    if end_dt > now_utc:
+        now_iso = to_iso(now_utc)
+        if _future_booking_count(conn, apartment_id, resource_id, now_iso) >= max_bookings:
+            raise ValueError("max_bookings")
     cursor = conn.execute(
         """
         INSERT INTO bookings (apartment_id, resource_id, start_time, end_time, is_billable)
