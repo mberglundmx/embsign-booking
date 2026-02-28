@@ -8,6 +8,13 @@ import {
   resetMockState
 } from "../src/mockApi";
 
+function getLocalDateString(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 describe("mockApi", () => {
   beforeEach(() => {
     resetMockState();
@@ -25,7 +32,7 @@ describe("mockApi", () => {
   });
 
   it("bokar och stoppar konflikter", () => {
-    const date = new Date().toISOString().slice(0, 10);
+    const date = getLocalDateString(new Date());
     const [slot] = getSlots(1, date);
     expect(slot).toBeTruthy();
     const first = bookSlot({
@@ -51,5 +58,26 @@ describe("mockApi", () => {
   it("bokningar kan hämtas", () => {
     const list = getBookings("1001");
     expect(Array.isArray(list)).toBe(true);
+  });
+
+  it("heldag blockerar inte föregående dag", () => {
+    const date = "2026-03-06";
+    const previousDate = "2026-03-05";
+    const [daySlot] = getSlots(2, date);
+    expect(daySlot).toBeTruthy();
+
+    bookSlot({
+      apartment_id: "1001",
+      resource_id: 2,
+      start_time: daySlot.start_time,
+      end_time: daySlot.end_time,
+      is_billable: false
+    });
+
+    const [selectedDay] = getSlots(2, date);
+    const [previousDay] = getSlots(2, previousDate);
+
+    expect(selectedDay.is_booked).toBe(true);
+    expect(previousDay.is_booked).toBe(false);
   });
 });

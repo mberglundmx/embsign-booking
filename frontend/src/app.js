@@ -1,4 +1,5 @@
 import Alpine from "alpinejs";
+import { getUtcDayWindow, parseLocalDateString, toLocalDateString } from "./dateUtils";
 
 const DEFAULT_MODE = "desktop";
 const FULL_DAY_COUNT = 30;
@@ -36,7 +37,7 @@ function addDays(date, days) {
 }
 
 function getDateString(date) {
-  return date.toISOString().slice(0, 10);
+  return toLocalDateString(date);
 }
 
 function getUpcomingDays(count) {
@@ -45,7 +46,7 @@ function getUpcomingDays(count) {
 }
 
 function formatDate(dateString) {
-  const date = new Date(dateString);
+  const date = parseLocalDateString(dateString);
   return new Intl.DateTimeFormat("sv-SE", {
     weekday: "short",
     day: "numeric",
@@ -54,7 +55,7 @@ function formatDate(dateString) {
 }
 
 function formatDateLong(dateString) {
-  const date = new Date(dateString);
+  const date = parseLocalDateString(dateString);
   return new Intl.DateTimeFormat("sv-SE", {
     weekday: "long",
     day: "numeric",
@@ -129,13 +130,8 @@ function normalizeSlots(slots) {
 }
 
 function getDayWindow(dateString) {
-  const start = new Date(`${dateString}T00:00:00`);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return {
-    start: start.toISOString(),
-    end: end.toISOString()
-  };
+  const { startIso, endIso } = getUtcDayWindow(dateString);
+  return { start: startIso, end: endIso };
 }
 
 Alpine.data("bookingApp", () => ({
@@ -213,7 +209,7 @@ Alpine.data("bookingApp", () => ({
   },
 
   getDayHeaderParts(dateString) {
-    const date = new Date(dateString);
+    const date = parseLocalDateString(dateString);
     const dayIndex = date.getDay();
     return {
       weekday: new Intl.DateTimeFormat("sv-SE", { weekday: "long" }).format(date),
@@ -466,7 +462,7 @@ Alpine.data("bookingApp", () => ({
     }));
     const firstDate = calendarDays[0]?.date;
     if (!firstDate) return [];
-    const firstDay = new Date(firstDate);
+    const firstDay = parseLocalDateString(firstDate);
     const offset = (firstDay.getDay() + 6) % 7;
     const padding = Array.from({ length: offset }, () => ({
       date: null,
