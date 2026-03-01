@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createBookingApp, detectMode } from "../src/app";
+import {
+  createBookingApp,
+  detectMode,
+  getHostnameFromAddress,
+  getHostnameFromFrontendOrigins
+} from "../src/app";
 
 const BASE_RESOURCE = {
   id: 1,
@@ -124,6 +129,27 @@ describe("detectMode", () => {
     expect(detectMode("?mode=desktop")).toBe("desktop");
     expect(detectMode("?mode=annat")).toBe("desktop");
     expect(detectMode("")).toBe("desktop");
+  });
+});
+
+describe("hostname helpers", () => {
+  it("normaliserar host från adressvärden", () => {
+    expect(getHostnameFromAddress("https://bokning.example.se")).toBe("bokning.example.se");
+    expect(getHostnameFromAddress("http://bokning.example.se:5173/path")).toBe(
+      "bokning.example.se:5173"
+    );
+    expect(getHostnameFromAddress("bokning.example.se")).toBe("bokning.example.se");
+    expect(getHostnameFromAddress("")).toBe("");
+  });
+
+  it("hämtar första host från FRONTEND_ORIGINS-liknande lista", () => {
+    expect(
+      getHostnameFromFrontendOrigins("https://bokning.example.se, https://backup.example.se")
+    ).toBe("bokning.example.se");
+    expect(getHostnameFromFrontendOrigins("bokning.example.se,backup.example.se")).toBe(
+      "bokning.example.se"
+    );
+    expect(getHostnameFromFrontendOrigins("")).toBe("");
   });
 });
 

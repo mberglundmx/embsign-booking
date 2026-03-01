@@ -12,7 +12,9 @@ const TIME_SLOT_DAYS_VISIBLE = 4;
 const WEEKDAY_LABELS = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
 const NEXT_AVAILABILITY_LOADING = "__loading__";
 const NEXT_AVAILABILITY_NONE = "__none__";
-const CONFIGURED_PUBLIC_HOSTNAME = (import.meta.env.VITE_PUBLIC_HOSTNAME ?? "").trim();
+const RAW_CONFIGURED_PUBLIC_HOSTNAME = import.meta.env.VITE_PUBLIC_HOSTNAME ?? "";
+const RAW_FRONTEND_ORIGINS =
+  import.meta.env.VITE_FRONTEND_ORIGINS ?? import.meta.env.FRONTEND_ORIGINS ?? "";
 const DEMO_RFID_UID = import.meta.env.VITE_RFID_UID || "UID123";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 
@@ -72,6 +74,29 @@ function formatDateLong(dateString) {
 function formatTimeRange(startIso, endIso) {
   return formatWallClockRange(startIso, endIso);
 }
+
+export function getHostnameFromAddress(value = "") {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const withProtocol = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
+  try {
+    return new URL(withProtocol).host;
+  } catch {
+    return trimmed.replace(/^\/+/, "").replace(/\/.*$/, "");
+  }
+}
+
+export function getHostnameFromFrontendOrigins(originsValue = "") {
+  const firstOrigin = originsValue
+    .split(",")
+    .map((item) => item.trim())
+    .find(Boolean);
+  if (!firstOrigin) return "";
+  return getHostnameFromAddress(firstOrigin);
+}
+
+const CONFIGURED_PUBLIC_HOSTNAME = getHostnameFromAddress(RAW_CONFIGURED_PUBLIC_HOSTNAME);
+const CONFIGURED_FRONTEND_ORIGINS_HOSTNAME = getHostnameFromFrontendOrigins(RAW_FRONTEND_ORIGINS);
 
 function normalizeResources(resources) {
   return resources.map((resource) => ({
@@ -294,6 +319,9 @@ export function createBookingApp(options = {}) {
     get publicBookingHostname() {
       if (CONFIGURED_PUBLIC_HOSTNAME) {
         return CONFIGURED_PUBLIC_HOSTNAME;
+      }
+      if (CONFIGURED_FRONTEND_ORIGINS_HOSTNAME) {
+        return CONFIGURED_FRONTEND_ORIGINS_HOSTNAME;
       }
       return runtimeWindow.location?.host ?? "";
     },
