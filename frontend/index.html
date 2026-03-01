@@ -8,7 +8,7 @@
   </head>
   <body
     class="min-h-screen text-slate-900"
-    :class="isPosMode && !isAuthenticated ? 'bg-slate-900' : 'bg-slate-50'"
+    :class="isPosMode && !isAuthenticated ? 'bg-white' : 'bg-slate-50'"
     x-data="bookingApp()"
     x-init="init()"
   >
@@ -18,7 +18,7 @@
     >
       <section
         class="flex flex-col"
-        :class="isPosMode ? 'h-screen w-screen justify-center bg-slate-900 px-6 py-8 text-white sm:px-12' : 'card gap-6'"
+        :class="isPosMode ? 'h-screen w-screen justify-center bg-white px-6 py-8 text-slate-900 sm:px-12' : 'card gap-6'"
         x-show="!isAuthenticated"
         x-transition
         data-testid="login-card"
@@ -41,9 +41,9 @@
               loading="eager"
             />
             <div class="space-y-5">
-              <p class="text-5xl font-semibold tracking-tight text-white sm:text-7xl">Visa bricka</p>
+              <p class="text-5xl font-semibold tracking-tight text-slate-900 sm:text-7xl">Visa bricka</p>
               <p
-                class="mx-auto max-w-4xl text-base leading-relaxed text-slate-200 sm:text-2xl"
+                class="mx-auto max-w-4xl text-base leading-relaxed text-slate-600 sm:text-2xl"
                 data-testid="pos-login-help-text"
               >
                 Logga in genom att visa din bricka eller iLoq-nyckel på läsaren nedanför skärmen. När du är inloggad här kan du sätta ett lösenord för att kunna logga in med mobiltelefon eller dator för att sköta bokningar.
