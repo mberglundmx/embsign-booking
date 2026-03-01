@@ -62,6 +62,40 @@ def test_mobile_login_invalid(client, seeded_apartment):
     assert response.status_code == 401
 
 
+def test_mobile_password_update_changes_mobile_login(client, db_conn, seeded_apartment):
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+    update_response = client.post(
+        "/mobile-password",
+        json={"new_password": "new-secret"},
+        cookies={"session": token},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["status"] == "ok"
+
+    old_login = client.post(
+        "/mobile-login",
+        json={"apartment_id": seeded_apartment, "password": "secret"},
+    )
+    assert old_login.status_code == 401
+
+    new_login = client.post(
+        "/mobile-login",
+        json={"apartment_id": seeded_apartment, "password": "new-secret"},
+    )
+    assert new_login.status_code == 200
+
+
+def test_mobile_password_update_rejects_short_password(client, db_conn, seeded_apartment):
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+    response = client.post(
+        "/mobile-password",
+        json={"new_password": "123"},
+        cookies={"session": token},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "password_too_short"
+
+
 def test_slots_excludes_booked(client, db_conn, seeded_apartment, seeded_resource):
     token = create_session(db_conn, seeded_apartment, is_admin=False)
     start = datetime(2026, 2, 28, 6, 0, tzinfo=timezone.utc).isoformat()

@@ -12,6 +12,10 @@ class MobileLoginRequest(BaseModel):
     password: str
 
 
+class MobilePasswordUpdateRequest(BaseModel):
+    new_password: str
+
+
 class BookRequest(BaseModel):
     apartment_id: str
     resource_id: int

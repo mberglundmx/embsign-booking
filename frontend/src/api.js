@@ -60,6 +60,13 @@ export async function loginWithPassword(apartmentId, password) {
   });
 }
 
+export async function updateMobilePassword(newPassword) {
+  return request("/mobile-password", {
+    method: "POST",
+    body: JSON.stringify({ new_password: newPassword })
+  });
+}
+
 export async function getResources() {
   const data = await request("/resources");
   return data.resources ?? [];

@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   bookSlot,
+  cancelBooking,
   getBookings,
+  getResources,
   getSlots,
   loginWithPassword,
   loginWithRfid,
+  updateMobilePassword,
   resetMockState
 } from "../src/mockApi";
 
@@ -25,10 +28,24 @@ describe("mockApi", () => {
     expect(result.apartment_id).toBe("1001");
   });
 
+  it("returnerar bokningsobjekt", () => {
+    const resources = getResources();
+    expect(resources.length).toBeGreaterThan(0);
+  });
+
   it("hanterar lösenordsinloggning", () => {
     const ok = loginWithPassword("1001", "1234");
     expect(ok.apartment_id).toBe("1001");
     expect(() => loginWithPassword("1002", "1111")).toThrow();
+  });
+
+  it("uppdaterar mobil-lösenord", () => {
+    loginWithRfid();
+    const result = updateMobilePassword("nytt-losen");
+    expect(result.status).toBe("ok");
+    expect(() => loginWithPassword("1001", "1234")).toThrow();
+    const login = loginWithPassword("1001", "nytt-losen");
+    expect(login.apartment_id).toBe("1001");
   });
 
   it("bokar och stoppar konflikter", () => {
@@ -58,6 +75,10 @@ describe("mockApi", () => {
   it("bokningar kan hämtas", () => {
     const list = getBookings("1001");
     expect(Array.isArray(list)).toBe(true);
+  });
+
+  it("avbokning hanterar saknad bokning", () => {
+    expect(() => cancelBooking(999999)).toThrow();
   });
 
   it("heldag blockerar inte föregående dag", () => {
