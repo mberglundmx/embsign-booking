@@ -47,6 +47,7 @@ def test_db_migration_helpers_add_missing_columns():
     assert "slot_start_hour" in resource_columns
     assert "slot_end_hour" in resource_columns
     assert "max_future_days" in resource_columns
+    assert "min_future_days" in resource_columns
     assert "max_bookings" in resource_columns
     assert "allow_houses" in resource_columns
     assert "deny_apartment_ids" in resource_columns

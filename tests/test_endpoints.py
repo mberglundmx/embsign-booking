@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import app.booking as booking
 from app.auth import RFID_CACHE, RfidEntry, create_session, parse_apartment_name
@@ -237,6 +237,51 @@ def test_book_limits_future_bookings_per_resource(
     )
     assert third_response.status_code == 409
     assert third_response.json()["detail"] == "max_bookings_reached"
+
+
+def test_book_rejects_dates_before_min_future_window(
+    client, db_conn, seeded_apartment, seeded_resource, monkeypatch
+):
+    fixed_now = datetime(2026, 2, 1, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(booking, "_now_utc", lambda: fixed_now)
+    db_conn.execute(
+        "UPDATE resources SET min_future_days = ?, max_future_days = ? WHERE id = ?",
+        (3, 90, seeded_resource),
+    )
+    db_conn.commit()
+
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+    too_soon_start = (fixed_now + timedelta(days=2, hours=-1)).isoformat()
+    too_soon_end = (fixed_now + timedelta(days=2)).isoformat()
+    allowed_start = (fixed_now + timedelta(days=3, hours=-1)).isoformat()
+    allowed_end = (fixed_now + timedelta(days=3)).isoformat()
+
+    too_soon_response = client.post(
+        "/book",
+        json={
+            "apartment_id": seeded_apartment,
+            "resource_id": seeded_resource,
+            "start_time": too_soon_start,
+            "end_time": too_soon_end,
+            "is_billable": False,
+        },
+        cookies={"session": token},
+    )
+    assert too_soon_response.status_code == 409
+    assert too_soon_response.json()["detail"] == "outside_booking_window"
+
+    allowed_response = client.post(
+        "/book",
+        json={
+            "apartment_id": seeded_apartment,
+            "resource_id": seeded_resource,
+            "start_time": allowed_start,
+            "end_time": allowed_end,
+            "is_billable": False,
+        },
+        cookies={"session": token},
+    )
+    assert allowed_response.status_code == 200
 
 
 def test_admin_calendar_requires_admin(client, db_conn, seeded_apartment, seeded_resource):

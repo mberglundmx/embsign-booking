@@ -6,6 +6,7 @@ const initialResources = [
     name: "Tvättstuga 1",
     booking_type: "time-slot",
     max_future_days: 14,
+    min_future_days: 0,
     price_cents: 0,
     is_billable: false
   },
@@ -14,6 +15,7 @@ const initialResources = [
     name: "Tvättstuga 2",
     booking_type: "full-day",
     max_future_days: 30,
+    min_future_days: 0,
     price_cents: 0,
     is_billable: false
   },
@@ -22,6 +24,7 @@ const initialResources = [
     name: "Gästlägenhet",
     booking_type: "full-day",
     max_future_days: 90,
+    min_future_days: 3,
     price_cents: 25000,
     is_billable: true
   }

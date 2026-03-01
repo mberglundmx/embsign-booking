@@ -64,6 +64,26 @@ def _normalize_max_bookings(raw: object) -> int:
     return value
 
 
+def _normalize_min_future_days(raw: object) -> int:
+    try:
+        value = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    if value < 0:
+        return 0
+    return value
+
+
+def _normalize_max_future_days(raw: object) -> int:
+    try:
+        value = int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 30
+    if value <= 0:
+        return 30
+    return value
+
+
 def _get_resource_max_bookings(conn, resource_id: int) -> int | None:
     row = conn.execute(
         "SELECT max_bookings FROM resources WHERE id = ? AND is_active = 1",
@@ -72,6 +92,26 @@ def _get_resource_max_bookings(conn, resource_id: int) -> int | None:
     if row is None:
         return None
     return _normalize_max_bookings(row["max_bookings"])
+
+
+def _get_resource_min_future_days(conn, resource_id: int) -> int | None:
+    row = conn.execute(
+        "SELECT min_future_days FROM resources WHERE id = ? AND is_active = 1",
+        (resource_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return _normalize_min_future_days(row["min_future_days"])
+
+
+def _get_resource_max_future_days(conn, resource_id: int) -> int | None:
+    row = conn.execute(
+        "SELECT max_future_days FROM resources WHERE id = ? AND is_active = 1",
+        (resource_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return _normalize_max_future_days(row["max_future_days"])
 
 
 def _future_booking_count(conn, apartment_id: str, resource_id: int, now_iso: str) -> int:
@@ -183,7 +223,15 @@ def create_booking(
     max_bookings = _get_resource_max_bookings(conn, resource_id)
     if max_bookings is None:
         raise PermissionError("resource_forbidden")
+    min_future_days = _get_resource_min_future_days(conn, resource_id)
+    max_future_days = _get_resource_max_future_days(conn, resource_id)
+    if min_future_days is None or max_future_days is None:
+        raise PermissionError("resource_forbidden")
     now_utc = _now_utc()
+    if start_dt >= now_utc:
+        days_ahead = (start_dt.date() - now_utc.date()).days
+        if days_ahead < min_future_days or days_ahead >= max_future_days:
+            raise ValueError("outside_booking_window")
     if end_dt > now_utc:
         now_iso = to_iso(now_utc)
         if _future_booking_count(conn, apartment_id, resource_id, now_iso) >= max_bookings:
@@ -227,6 +275,7 @@ def list_slots(
         resources = conn.execute(
             """
             SELECT id, booking_type, slot_duration_minutes, slot_start_hour, slot_end_hour, max_future_days
+                   ,min_future_days
                    ,allow_houses, deny_apartment_ids
             FROM resources
             WHERE id = ? AND is_active = 1
@@ -237,6 +286,7 @@ def list_slots(
         resources = conn.execute(
             """
             SELECT id, booking_type, slot_duration_minutes, slot_start_hour, slot_end_hour, max_future_days
+                   ,min_future_days
                    ,allow_houses, deny_apartment_ids
             FROM resources
             WHERE is_active = 1
@@ -258,8 +308,11 @@ def list_slots(
                 continue
             if not _resource_access_allowed(resource, apartment_id, apartment_house):
                 continue
-        max_future_days = int(resource["max_future_days"] or 30)
+        max_future_days = _normalize_max_future_days(resource["max_future_days"])
+        min_future_days = _normalize_min_future_days(resource["min_future_days"])
         days_ahead = (target_day - now_utc.date()).days
+        if days_ahead >= 0 and days_ahead < min_future_days:
+            continue
         if days_ahead >= max_future_days:
             continue
 

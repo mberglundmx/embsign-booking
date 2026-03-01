@@ -41,9 +41,11 @@ function getDateString(date) {
   return toLocalDateString(date);
 }
 
-function getUpcomingDays(count) {
+function getUpcomingDays(count, startOffset = 0) {
   const today = new Date();
-  return Array.from({ length: count }, (_, index) => getDateString(addDays(today, index)));
+  return Array.from({ length: count }, (_, index) =>
+    getDateString(addDays(today, index + startOffset))
+  );
 }
 
 function formatDate(dateString) {
@@ -77,6 +79,10 @@ function normalizeResources(resources) {
       typeof resource.max_future_days === "number"
         ? resource.max_future_days
         : (resource.maxAdvanceDays ?? FULL_DAY_COUNT),
+    minAdvanceDays:
+      typeof resource.min_future_days === "number"
+        ? resource.min_future_days
+        : (resource.minAdvanceDays ?? 0),
     price:
       typeof resource.price_cents === "number"
         ? Math.round(resource.price_cents / 100)
@@ -192,6 +198,14 @@ export function createBookingApp(options = {}) {
       return this.selectedResource?.maxAdvanceDays ?? FULL_DAY_COUNT;
     },
 
+    getMinAdvanceDays() {
+      return this.selectedResource?.minAdvanceDays ?? 0;
+    },
+
+    getVisibleDayCount() {
+      return Math.max(0, this.getMaxAdvanceDays() - this.getMinAdvanceDays());
+    },
+
     get isPosMode() {
       return this.mode === "pos";
     },
@@ -274,7 +288,7 @@ export function createBookingApp(options = {}) {
 
     async selectResource(resourceId) {
       this.selectedResourceId = resourceId;
-      this.days = getUpcomingDays(this.getMaxAdvanceDays());
+      this.days = getUpcomingDays(this.getVisibleDayCount(), this.getMinAdvanceDays());
       this.timeSlotStartIndex = 0;
       this.resetAvailabilityData();
       await this.refreshSlots();
@@ -622,7 +636,7 @@ export function createBookingApp(options = {}) {
       const resources = await api.getResources();
       this.resources = normalizeResources(resources);
       this.selectedResourceId = this.resources[0]?.id ?? null;
-      this.days = getUpcomingDays(this.getMaxAdvanceDays());
+      this.days = getUpcomingDays(this.getVisibleDayCount(), this.getMinAdvanceDays());
       this.timeSlotStartIndex = 0;
       this.resetAvailabilityData();
     },
