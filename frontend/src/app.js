@@ -145,6 +145,7 @@ export function createBookingApp(options = {}) {
   return {
     mode: DEFAULT_MODE,
     isAuthenticated: false,
+    authenticatedStep: "setup",
     userId: null,
     userIdInput: "",
     passwordInput: "",
@@ -208,6 +209,18 @@ export function createBookingApp(options = {}) {
 
     get isPosMode() {
       return this.mode === "pos";
+    },
+
+    get isSetupStep() {
+      return this.authenticatedStep === "setup";
+    },
+
+    get isScheduleStep() {
+      return this.authenticatedStep === "schedule";
+    },
+
+    get canGoBackStep() {
+      return this.isAuthenticated && this.isScheduleStep;
     },
 
     get timeSlotDays() {
@@ -310,6 +323,21 @@ export function createBookingApp(options = {}) {
       await this.refreshSlots();
     },
 
+    async showScheduleStep() {
+      if (!this.selectedResourceId) {
+        this.showError("Välj ett bokningsobjekt först.");
+        return;
+      }
+      await this.refreshSlots();
+      this.authenticatedStep = "schedule";
+    },
+
+    goBackStep() {
+      if (this.authenticatedStep === "schedule") {
+        this.authenticatedStep = "setup";
+      }
+    },
+
     async loginPos(uidOverride = "") {
       this.loading = true;
       this.clearError();
@@ -318,8 +346,10 @@ export function createBookingApp(options = {}) {
         const uid = uidOverride || demoRfidUid;
         const result = await api.loginWithRfid(uid);
         this.isAuthenticated = true;
+        this.authenticatedStep = "setup";
         this.userId = result.apartment_id ?? result.userId ?? null;
         this.rfidInput = "";
+        this.passwordFormOpen = false;
         this.passwordUpdateMessage = "";
         await this.loadResources();
         await this.loadBookings();
@@ -344,7 +374,9 @@ export function createBookingApp(options = {}) {
           this.passwordInput.trim()
         );
         this.isAuthenticated = true;
+        this.authenticatedStep = "setup";
         this.userId = result.apartment_id ?? result.userId ?? null;
+        this.passwordFormOpen = false;
         this.passwordUpdateMessage = "";
         await this.loadResources();
         await this.loadBookings();
@@ -413,6 +445,7 @@ export function createBookingApp(options = {}) {
 
     logout() {
       this.isAuthenticated = false;
+      this.authenticatedStep = "setup";
       this.userId = null;
       this.userIdInput = "";
       this.passwordInput = "";

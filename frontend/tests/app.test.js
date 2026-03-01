@@ -207,6 +207,28 @@ describe("bookingApp", () => {
     expect(app.timeSlotStartIndex).toBe(1);
   });
 
+  it("stegnavigering växlar mellan setup och bokningstider", async () => {
+    const { app } = createApp();
+    app.isAuthenticated = true;
+    app.showError = vi.fn();
+    app.refreshSlots = vi.fn().mockResolvedValue();
+
+    await app.showScheduleStep();
+    expect(app.showError).toHaveBeenCalledWith("Välj ett bokningsobjekt först.");
+    expect(app.authenticatedStep).toBe("setup");
+    expect(app.canGoBackStep).toBe(false);
+
+    app.selectedResourceId = 1;
+    await app.showScheduleStep();
+    expect(app.refreshSlots).toHaveBeenCalledTimes(1);
+    expect(app.authenticatedStep).toBe("schedule");
+    expect(app.canGoBackStep).toBe(true);
+
+    app.goBackStep();
+    expect(app.authenticatedStep).toBe("setup");
+    expect(app.canGoBackStep).toBe(false);
+  });
+
   it("loginPos använder demo-UID, sätter användare och laddar data", async () => {
     const { app, api } = createApp({ mode: "pos", demoRfidUid: "DEMO-42" });
     app.mode = "pos";
@@ -219,6 +241,7 @@ describe("bookingApp", () => {
 
     expect(api.loginWithRfid).toHaveBeenCalledWith("DEMO-42");
     expect(app.isAuthenticated).toBe(true);
+    expect(app.authenticatedStep).toBe("setup");
     expect(app.userId).toBe("1-1201");
     expect(app.passwordUpdateMessage).toBe("");
     expect(app.loading).toBe(false);
@@ -283,6 +306,7 @@ describe("bookingApp", () => {
 
     expect(api.loginWithPassword).toHaveBeenCalledWith("1-1201", "secret");
     expect(app.isAuthenticated).toBe(true);
+    expect(app.authenticatedStep).toBe("setup");
     expect(app.userId).toBe("1-1201");
 
     const invalid = createApp({
@@ -376,6 +400,7 @@ describe("bookingApp", () => {
   it("logout återställer all användarspecifik state", () => {
     const { app } = createApp();
     app.isAuthenticated = true;
+    app.authenticatedStep = "schedule";
     app.userId = "1-1201";
     app.userIdInput = "1-1201";
     app.passwordInput = "secret";
@@ -390,6 +415,7 @@ describe("bookingApp", () => {
     app.logout();
 
     expect(app.isAuthenticated).toBe(false);
+    expect(app.authenticatedStep).toBe("setup");
     expect(app.userId).toBeNull();
     expect(app.userIdInput).toBe("");
     expect(app.passwordInput).toBe("");
