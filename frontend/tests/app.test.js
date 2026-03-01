@@ -207,19 +207,13 @@ describe("bookingApp", () => {
     expect(app.timeSlotStartIndex).toBe(1);
   });
 
-  it("stegnavigering växlar mellan setup och bokningstider", async () => {
+  it("stegnavigering öppnar schema vid resursval och kan gå tillbaka", async () => {
     const { app } = createApp();
     app.isAuthenticated = true;
-    app.showError = vi.fn();
+    app.resources = [{ id: 1, bookingType: "time-slot", maxAdvanceDays: 14, minAdvanceDays: 0 }];
     app.refreshSlots = vi.fn().mockResolvedValue();
 
-    await app.showScheduleStep();
-    expect(app.showError).toHaveBeenCalledWith("Välj ett bokningsobjekt först.");
-    expect(app.authenticatedStep).toBe("setup");
-    expect(app.canGoBackStep).toBe(false);
-
-    app.selectedResourceId = 1;
-    await app.showScheduleStep();
+    await app.selectResource(1);
     expect(app.refreshSlots).toHaveBeenCalledTimes(1);
     expect(app.authenticatedStep).toBe("schedule");
     expect(app.canGoBackStep).toBe(true);
@@ -409,6 +403,8 @@ describe("bookingApp", () => {
     app.confirmPasswordInput = "abcd";
     app.passwordUpdateMessage = "ok";
     app.resources = [{ id: 1 }];
+    app.nextAvailabilityRequestToken = 2;
+    app.nextAvailableByResourceId = { 1: "måndag 3 mars 08:00-09:00" };
     app.selectedResourceId = 1;
     app.bookings = [{ id: 1 }];
 
@@ -422,6 +418,8 @@ describe("bookingApp", () => {
     expect(app.passwordFormOpen).toBe(false);
     expect(app.passwordUpdateMessage).toBe("");
     expect(app.resources).toEqual([]);
+    expect(app.nextAvailabilityRequestToken).toBe(3);
+    expect(app.nextAvailableByResourceId).toEqual({});
     expect(app.selectedResourceId).toBeNull();
     expect(app.bookings).toEqual([]);
   });
@@ -717,6 +715,12 @@ describe("bookingApp", () => {
     expect(app.resources).toHaveLength(2);
     expect(app.resources[0].price).toBe(250);
     expect(app.resources[1].bookingType).toBe("time-slot");
+    expect(app.isNextAvailabilityLoading(4)).toBe(false);
+    expect(app.getNextAvailabilityLabel(4)).not.toBe("");
+    expect(app.hasNoNextAvailability(4)).toBe(false);
+    expect(app.isNextAvailabilityLoading(5)).toBe(false);
+    expect(app.getNextAvailabilityLabel(5)).not.toBe("");
+    expect(app.hasNoNextAvailability(5)).toBe(false);
     expect(app.selectedResourceId).toBe(4);
     expect(app.days).toHaveLength(90);
   });

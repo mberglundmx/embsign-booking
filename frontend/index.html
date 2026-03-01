@@ -105,8 +105,8 @@
 
         <div class="flex flex-col gap-4" x-show="isSetupStep" x-transition data-testid="booking-setup">
           <div class="card card-compact" data-testid="resource-picker">
-            <p class="card-title text-base">Steg 1: Välj bokningsobjekt</p>
-            <p class="text-xs text-slate-500">Välj objekt och gå vidare till bokningstider.</p>
+            <p class="card-title text-base">Välj bokningsobjekt</p>
+            <p class="text-xs text-slate-500">Tryck på ett objekt för att se bokningstider.</p>
             <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               <template x-for="resource in resources" :key="resource.id">
                 <button
@@ -116,21 +116,21 @@
                   data-testid="resource-card"
                 >
                   <p class="font-semibold" x-text="resource.name"></p>
-                  <p class="text-xs text-slate-500" x-text="resource.bookingType === 'full-day' ? 'Heldag' : 'Timpass'"></p>
                   <p class="text-xs text-slate-500" x-show="resource.price > 0">
                     Debitering: <span x-text="resource.price"></span> kr
+                  </p>
+                  <p class="text-xs text-slate-500" x-show="isNextAvailabilityLoading(resource.id)">
+                    Söker nästa lediga tid...
+                  </p>
+                  <p class="text-xs text-slate-500" x-show="getNextAvailabilityLabel(resource.id)">
+                    Nästa lediga: <span x-text="getNextAvailabilityLabel(resource.id)"></span>
+                  </p>
+                  <p class="text-xs text-slate-500" x-show="hasNoNextAvailability(resource.id)">
+                    Ingen ledig tid i bokningsperioden.
                   </p>
                 </button>
               </template>
             </div>
-            <button
-              class="btn btn-primary mt-4 w-full sm:w-auto"
-              @click="showScheduleStep"
-              :disabled="!selectedResourceId || loading || availabilityLoading"
-              data-testid="go-to-booking-times"
-            >
-              Se bokningstider
-            </button>
           </div>
 
           <div
@@ -143,7 +143,7 @@
           <div class="card card-compact">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p class="card-title text-base">Steg 1: Ändra mobil-lösenord</p>
+                <p class="card-title text-base">Ändra mobil-lösenord</p>
                 <p class="text-xs text-slate-500">Valfritt men rekommenderat för mobil inloggning.</p>
               </div>
               <button
@@ -154,58 +154,12 @@
                 Ändra mobil-lösenord
               </button>
             </div>
-
-            <div class="mt-4" x-show="passwordFormOpen" x-transition data-testid="password-change-form">
-              <form class="grid gap-3 md:grid-cols-2" @submit.prevent="updateMobilePassword">
-                <label class="flex flex-col gap-2">
-                  <span class="text-sm font-medium">Nytt lösenord</span>
-                  <input
-                    class="input py-2"
-                    type="password"
-                    x-model="newPasswordInput"
-                    required
-                    minlength="4"
-                    data-testid="password-change-new"
-                  />
-                </label>
-                <label class="flex flex-col gap-2">
-                  <span class="text-sm font-medium">Bekräfta lösenord</span>
-                  <input
-                    class="input py-2"
-                    type="password"
-                    x-model="confirmPasswordInput"
-                    required
-                    minlength="4"
-                    data-testid="password-change-confirm"
-                  />
-                </label>
-                <div class="md:col-span-2 flex flex-wrap gap-2">
-                  <button
-                    class="btn btn-primary"
-                    type="submit"
-                    :disabled="loading"
-                    data-testid="password-change-submit"
-                  >
-                    Spara lösenord
-                  </button>
-                  <button
-                    class="btn btn-secondary"
-                    type="button"
-                    @click="closePasswordForm"
-                    data-testid="password-change-cancel"
-                  >
-                    Avbryt
-                  </button>
-                </div>
-              </form>
-            </div>
           </div>
         </div>
 
         <div class="flex flex-col gap-6" x-show="isScheduleStep" x-transition data-testid="schedule-view">
           <div class="card">
             <div class="text-center">
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Steg 2</p>
               <p
                 class="text-xl font-semibold text-slate-900 sm:text-2xl"
                 data-testid="selected-booking-object-title"
@@ -385,6 +339,65 @@
             OK
           </button>
         </div>
+      </div>
+    </div>
+
+    <div
+      class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 px-4"
+      x-show="passwordFormOpen"
+      x-transition
+      data-testid="password-modal"
+    >
+      <div class="card w-full max-w-xl" data-testid="password-change-form">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="card-title">Ändra lösenord för mobil inloggning</p>
+            <p class="mt-1 text-sm text-slate-500">Ange nytt lösenord och bekräfta.</p>
+          </div>
+          <button class="text-slate-400" @click="closePasswordForm" aria-label="Stäng">✕</button>
+        </div>
+        <form class="mt-4 grid gap-3 md:grid-cols-2" @submit.prevent="updateMobilePassword">
+          <label class="flex flex-col gap-2">
+            <span class="text-sm font-medium">Nytt lösenord</span>
+            <input
+              class="input py-2"
+              type="password"
+              x-model="newPasswordInput"
+              required
+              minlength="4"
+              data-testid="password-change-new"
+            />
+          </label>
+          <label class="flex flex-col gap-2">
+            <span class="text-sm font-medium">Bekräfta lösenord</span>
+            <input
+              class="input py-2"
+              type="password"
+              x-model="confirmPasswordInput"
+              required
+              minlength="4"
+              data-testid="password-change-confirm"
+            />
+          </label>
+          <div class="md:col-span-2 flex flex-wrap gap-2">
+            <button
+              class="btn btn-primary"
+              type="submit"
+              :disabled="loading"
+              data-testid="password-change-submit"
+            >
+              Spara lösenord
+            </button>
+            <button
+              class="btn btn-secondary"
+              type="button"
+              @click="closePasswordForm"
+              data-testid="password-change-cancel"
+            >
+              Avbryt
+            </button>
+          </div>
+        </form>
       </div>
     </div>
 

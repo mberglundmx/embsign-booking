@@ -10,6 +10,8 @@ const DEFAULT_MODE = "desktop";
 const FULL_DAY_COUNT = 30;
 const TIME_SLOT_DAYS_VISIBLE = 4;
 const WEEKDAY_LABELS = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
+const NEXT_AVAILABILITY_LOADING = "__loading__";
+const NEXT_AVAILABILITY_NONE = "__none__";
 const DEMO_RFID_UID = import.meta.env.VITE_RFID_UID || "UID123";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 
@@ -153,6 +155,8 @@ export function createBookingApp(options = {}) {
     rfidBuffer: "",
     rfidListenerBound: false,
     resources: [],
+    nextAvailableByResourceId: {},
+    nextAvailabilityRequestToken: 0,
     bookings: [],
     days: [],
     selectedResourceId: null,
@@ -265,6 +269,26 @@ export function createBookingApp(options = {}) {
       return formatDateLong(dateString);
     },
 
+    isNextAvailabilityLoading(resourceId) {
+      return this.nextAvailableByResourceId[resourceId] === NEXT_AVAILABILITY_LOADING;
+    },
+
+    hasNoNextAvailability(resourceId) {
+      return this.nextAvailableByResourceId[resourceId] === NEXT_AVAILABILITY_NONE;
+    },
+
+    getNextAvailabilityLabel(resourceId) {
+      const label = this.nextAvailableByResourceId[resourceId];
+      if (
+        !label ||
+        label === NEXT_AVAILABILITY_LOADING ||
+        label === NEXT_AVAILABILITY_NONE
+      ) {
+        return "";
+      }
+      return label;
+    },
+
     bindRfidListener() {
       if (this.rfidListenerBound) return;
       runtimeWindow.addEventListener("keydown", (event) => {
@@ -305,6 +329,9 @@ export function createBookingApp(options = {}) {
       this.timeSlotStartIndex = 0;
       this.resetAvailabilityData();
       await this.refreshSlots();
+      if (this.isAuthenticated && this.isSetupStep) {
+        this.authenticatedStep = "schedule";
+      }
     },
 
     get canNavigateTimeSlotsBack() {
@@ -321,15 +348,6 @@ export function createBookingApp(options = {}) {
       if (nextIndex + TIME_SLOT_DAYS_VISIBLE > this.days.length) return;
       this.timeSlotStartIndex = nextIndex;
       await this.refreshSlots();
-    },
-
-    async showScheduleStep() {
-      if (!this.selectedResourceId) {
-        this.showError("Välj ett bokningsobjekt först.");
-        return;
-      }
-      await this.refreshSlots();
-      this.authenticatedStep = "schedule";
     },
 
     goBackStep() {
@@ -454,6 +472,8 @@ export function createBookingApp(options = {}) {
       this.confirmPasswordInput = "";
       this.passwordUpdateMessage = "";
       this.resources = [];
+      this.nextAvailabilityRequestToken += 1;
+      this.nextAvailableByResourceId = {};
       this.selectedResourceId = null;
       this.bookings = [];
       this.resetAvailabilityData();
@@ -681,14 +701,102 @@ export function createBookingApp(options = {}) {
       }
     },
 
+    getResourceVisibleDays(resource) {
+      const maxAdvanceDays = resource?.maxAdvanceDays ?? FULL_DAY_COUNT;
+      const minAdvanceDays = resource?.minAdvanceDays ?? 0;
+      const dayCount = Math.max(0, maxAdvanceDays - minAdvanceDays);
+      return getUpcomingDays(dayCount, minAdvanceDays);
+    },
+
+    async findNextAvailabilityLabel(api, resource) {
+      const visibleDays = this.getResourceVisibleDays(resource);
+      if (visibleDays.length === 0) {
+        return NEXT_AVAILABILITY_NONE;
+      }
+
+      if (resource.bookingType === "full-day") {
+        if (typeof api.getAvailabilityRange === "function") {
+          const availability = await api.getAvailabilityRange(
+            resource.id,
+            visibleDays[0],
+            visibleDays[visibleDays.length - 1]
+          );
+          const firstAvailableDay = availability.find((item) =>
+            Boolean(item?.is_available ?? item?.available)
+          );
+          if (firstAvailableDay?.date) {
+            return this.formatDayLong(firstAvailableDay.date);
+          }
+          return NEXT_AVAILABILITY_NONE;
+        }
+
+        for (const date of visibleDays) {
+          const slots = normalizeSlots(await api.getSlots(resource.id, date));
+          const isAvailable = slots.length > 0 && !slots[0].isBooked && !slots[0].isPast;
+          if (isAvailable) {
+            return this.formatDayLong(date);
+          }
+        }
+        return NEXT_AVAILABILITY_NONE;
+      }
+
+      for (const date of visibleDays) {
+        const slots = normalizeSlots(await api.getSlots(resource.id, date));
+        const firstAvailableSlot = slots.find((slot) => !slot.isBooked && !slot.isPast);
+        if (firstAvailableSlot) {
+          return `${this.formatDayLong(date)} ${firstAvailableSlot.label}`;
+        }
+      }
+
+      return NEXT_AVAILABILITY_NONE;
+    },
+
+    async loadNextAvailability() {
+      const resources = [...this.resources];
+      const requestToken = ++this.nextAvailabilityRequestToken;
+      if (resources.length === 0) {
+        this.nextAvailableByResourceId = {};
+        return;
+      }
+
+      try {
+        const api = await getApiClient();
+        const entries = await Promise.all(
+          resources.map(async (resource) => {
+            try {
+              const label = await this.findNextAvailabilityLabel(api, resource);
+              return [resource.id, label];
+            } catch {
+              return [resource.id, NEXT_AVAILABILITY_NONE];
+            }
+          })
+        );
+        if (requestToken !== this.nextAvailabilityRequestToken) {
+          return;
+        }
+        this.nextAvailableByResourceId = Object.fromEntries(entries);
+      } catch {
+        if (requestToken !== this.nextAvailabilityRequestToken) {
+          return;
+        }
+        this.nextAvailableByResourceId = Object.fromEntries(
+          resources.map((resource) => [resource.id, NEXT_AVAILABILITY_NONE])
+        );
+      }
+    },
+
     async loadResources() {
       const api = await getApiClient();
       const resources = await api.getResources();
       this.resources = normalizeResources(resources);
+      this.nextAvailableByResourceId = Object.fromEntries(
+        this.resources.map((resource) => [resource.id, NEXT_AVAILABILITY_LOADING])
+      );
       this.selectedResourceId = this.resources[0]?.id ?? null;
       this.days = getUpcomingDays(this.getVisibleDayCount(), this.getMinAdvanceDays());
       this.timeSlotStartIndex = 0;
       this.resetAvailabilityData();
+      await this.loadNextAvailability();
     },
 
     showError(message, timeoutMs = 3500) {
