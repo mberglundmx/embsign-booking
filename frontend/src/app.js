@@ -306,11 +306,7 @@ export function createBookingApp(options = {}) {
 
     getNextAvailabilityLabel(resourceId) {
       const label = this.nextAvailableByResourceId[resourceId];
-      if (
-        !label ||
-        label === NEXT_AVAILABILITY_LOADING ||
-        label === NEXT_AVAILABILITY_NONE
-      ) {
+      if (!label || label === NEXT_AVAILABILITY_LOADING || label === NEXT_AVAILABILITY_NONE) {
         return "";
       }
       return label;
