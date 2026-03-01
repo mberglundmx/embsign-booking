@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   bookSlot,
   cancelBooking,
+  getAvailabilityRange,
   getBookings,
   getResources,
   getSlots,
@@ -100,5 +101,16 @@ describe("mockApi", () => {
 
     expect(selectedDay.is_booked).toBe(true);
     expect(previousDay.is_booked).toBe(false);
+  });
+
+  it("range-availability för heldag returnerar ett resultat per datum", () => {
+    const availability = getAvailabilityRange(2, "2026-03-05", "2026-03-07");
+    expect(availability).toHaveLength(3);
+    expect(availability.map((item) => item.date)).toEqual([
+      "2026-03-05",
+      "2026-03-06",
+      "2026-03-07"
+    ]);
+    expect(availability.every((item) => typeof item.is_available === "boolean")).toBe(true);
   });
 });

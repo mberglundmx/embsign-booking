@@ -85,6 +85,15 @@ export async function getSlots(resourceId, date) {
   return data.slots ?? [];
 }
 
+export async function getAvailabilityRange(resourceId, startDate, endDate) {
+  const params = new URLSearchParams();
+  if (resourceId) params.set("resource_id", String(resourceId));
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  const data = await request(`/availability-range?${params.toString()}`);
+  return data.availability ?? [];
+}
+
 export async function bookSlot(payload) {
   return request("/book", {
     method: "POST",

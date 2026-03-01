@@ -146,6 +146,42 @@ export function getSlots(resourceId, date) {
   });
 }
 
+function getDateRange(startDate, endDate) {
+  if (!startDate || !endDate) return [];
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return [];
+  }
+  const dates = [];
+  let cursor = start;
+  while (cursor <= end) {
+    dates.push(getDateString(cursor));
+    cursor = addDays(cursor, 1);
+  }
+  return dates;
+}
+
+export function getAvailabilityRange(resourceId, startDate, endDate) {
+  const resource = resources.find((item) => item.id === Number(resourceId));
+  if (!resource || resource.booking_type !== "full-day") return [];
+  const now = new Date();
+  return getDateRange(startDate, endDate).map((date) => {
+    const { start, end } = buildDaySlots(date);
+    const isBooked = hasOverlap(resource.id, activeApartmentId, start, end);
+    const isPast = new Date(end).getTime() <= now.getTime();
+    return {
+      date,
+      resource_id: resource.id,
+      start_time: start,
+      end_time: end,
+      is_booked: isBooked,
+      is_past: isPast,
+      is_available: !isBooked && !isPast
+    };
+  });
+}
+
 export function getBookings(apartmentId = activeApartmentId) {
   return bookings
     .filter((booking) => booking.apartment_id === apartmentId)

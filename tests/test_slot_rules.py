@@ -235,3 +235,37 @@ def test_slots_respect_min_future_days(client, db_conn, seeded_apartment, monkey
     )
     assert allowed_response.status_code == 200
     assert len(allowed_response.json()["slots"]) == 1
+
+
+def test_availability_range_respects_min_future_days(client, db_conn, seeded_apartment, monkeypatch):
+    fixed_now = datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(booking, "_now_utc", lambda: fixed_now)
+
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+    resource_id = _insert_resource(
+        db_conn,
+        name="Gästlägenhet",
+        booking_type="full-day",
+        max_future_days=90,
+        min_future_days=3,
+    )
+
+    start_date = (fixed_now + timedelta(days=2)).date().isoformat()
+    middle_date = (fixed_now + timedelta(days=3)).date().isoformat()
+    end_date = (fixed_now + timedelta(days=4)).date().isoformat()
+
+    response = client.get(
+        "/availability-range",
+        params={
+            "resource_id": resource_id,
+            "start_date": start_date,
+            "end_date": end_date,
+        },
+        cookies={"session": token},
+    )
+    assert response.status_code == 200
+    availability = {item["date"]: item for item in response.json()["availability"]}
+    assert len(availability) == 3
+    assert availability[start_date]["is_available"] is False
+    assert availability[middle_date]["is_available"] is True
+    assert availability[end_date]["is_available"] is True

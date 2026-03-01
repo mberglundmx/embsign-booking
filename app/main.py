@@ -20,6 +20,7 @@ from .booking import (
     can_access_resource,
     cancel_booking,
     create_booking,
+    list_full_day_availability_range,
     list_slots,
 )
 from .config import CSV_URL, DATABASE_PATH, FRONTEND_ORIGINS, GITHUB_TOKEN
@@ -151,6 +152,30 @@ def get_slots(
             is_admin=bool(session["is_admin"]),
         )
     }
+
+
+@app.get("/availability-range")
+def get_availability_range(
+    resource_id: int,
+    start_date: str,
+    end_date: str,
+    session=Depends(require_session),
+    conn=Depends(get_db),
+):
+    try:
+        availability = list_full_day_availability_range(
+            conn,
+            resource_id,
+            start_date,
+            end_date,
+            apartment_id=session["apartment_id"],
+            is_admin=bool(session["is_admin"]),
+        )
+    except ValueError as exc:
+        if str(exc) in {"invalid_date", "invalid_date_range", "date_range_too_large"}:
+            raise HTTPException(status_code=400, detail=str(exc))
+        raise
+    return {"availability": availability}
 
 
 @app.get("/resources", response_model=ResourcesResponse)

@@ -57,6 +57,11 @@ describe("api", () => {
       .mockResolvedValueOnce(createResponse({ jsonData: { resources: [{ id: 1 }] } }))
       .mockResolvedValueOnce(createResponse({ jsonData: { bookings: [{ id: 10 }] } }))
       .mockResolvedValueOnce(createResponse({ jsonData: { slots: [{ id: "08:00-09:00" }] } }))
+      .mockResolvedValueOnce(
+        createResponse({
+          jsonData: { availability: [{ date: "2026-03-06", is_available: true }] }
+        })
+      )
       .mockResolvedValueOnce(createResponse({ jsonData: { booking_id: 77 } }))
       .mockResolvedValueOnce({
         ok: true,
@@ -72,6 +77,7 @@ describe("api", () => {
     const resources = await api.getResources();
     const bookings = await api.getBookings();
     const slots = await api.getSlots(1, "2026-03-06");
+    const availability = await api.getAvailabilityRange(2, "2026-03-06", "2026-03-08");
     const booked = await api.bookSlot({
       apartment_id: "1-1201",
       resource_id: 1,
@@ -86,10 +92,15 @@ describe("api", () => {
     expect(resources).toEqual([{ id: 1 }]);
     expect(bookings).toEqual([{ id: 10 }]);
     expect(slots).toEqual([{ id: "08:00-09:00" }]);
+    expect(availability).toEqual([{ date: "2026-03-06", is_available: true }]);
     expect(booked.booking_id).toBe(77);
     expect(canceled).toBeNull();
     expect(passwordResult.status).toBe("ok");
     expect(slotsWithoutParams).toEqual([]);
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://api.test/availability-range?resource_id=2&start_date=2026-03-06&end_date=2026-03-08",
+      expect.objectContaining({ credentials: "include" })
+    );
     expect(global.fetch).toHaveBeenCalledWith(
       "http://api.test/slots?",
       expect.objectContaining({ credentials: "include" })

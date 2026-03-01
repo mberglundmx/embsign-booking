@@ -23,6 +23,21 @@ function createWindowMock() {
   };
 }
 
+function getDatesInRange(startDate, endDate) {
+  const dates = [];
+  if (!startDate || !endDate) return dates;
+  let cursor = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  while (cursor <= end) {
+    const year = cursor.getUTCFullYear();
+    const month = String(cursor.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(cursor.getUTCDate()).padStart(2, "0");
+    dates.push(`${year}-${month}-${day}`);
+    cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return dates;
+}
+
 function createApiMock(overrides = {}) {
   return {
     logBackendStatus: vi.fn(),
@@ -60,6 +75,18 @@ function createApiMock(overrides = {}) {
           is_past: false
         }
       ]);
+    }),
+    getAvailabilityRange: vi.fn().mockImplementation((resourceId, startDate, endDate) => {
+      const dates = getDatesInRange(startDate, endDate);
+      return Promise.resolve(
+        dates.map((date) => ({
+          date,
+          resource_id: Number(resourceId),
+          is_booked: false,
+          is_past: false,
+          is_available: true
+        }))
+      );
     }),
     bookSlot: vi.fn().mockResolvedValue({ booking_id: 99 }),
     cancelBooking: vi.fn().mockResolvedValue({ status: "ok" }),
@@ -584,16 +611,17 @@ describe("bookingApp", () => {
 
     const fullDayApp = createApp({
       apiOverrides: {
-        getSlots: vi.fn().mockImplementation((resourceId, date) => {
-          const booked = date === "2026-03-07";
-          return Promise.resolve([
-            {
-              start_time: `${date}T00:00:00+00:00`,
-              end_time: `${date}T23:59:00+00:00`,
-              is_booked: booked,
-              is_past: false
-            }
-          ]);
+        getAvailabilityRange: vi.fn().mockImplementation((resourceId, startDate, endDate) => {
+          const dates = getDatesInRange(startDate, endDate);
+          return Promise.resolve(
+            dates.map((date) => ({
+              date,
+              resource_id: Number(resourceId),
+              is_booked: date === "2026-03-07",
+              is_past: false,
+              is_available: date !== "2026-03-07"
+            }))
+          );
         })
       }
     });
@@ -601,6 +629,11 @@ describe("bookingApp", () => {
     fullDayApp.app.selectedResourceId = 2;
     fullDayApp.app.days = ["2026-03-07", "2026-03-08"];
     await fullDayApp.app.refreshSlots();
+    expect(fullDayApp.api.getAvailabilityRange).toHaveBeenCalledWith(
+      2,
+      "2026-03-07",
+      "2026-03-08"
+    );
     expect(fullDayApp.app.fullDayAvailability["2026-03-07"]).toBe(false);
     expect(fullDayApp.app.fullDayAvailability["2026-03-08"]).toBe(true);
 
