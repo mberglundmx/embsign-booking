@@ -237,7 +237,9 @@ def test_slots_respect_min_future_days(client, db_conn, seeded_apartment, monkey
     assert len(allowed_response.json()["slots"]) == 1
 
 
-def test_availability_range_respects_min_future_days(client, db_conn, seeded_apartment, monkeypatch):
+def test_availability_range_respects_min_future_days(
+    client, db_conn, seeded_apartment, monkeypatch
+):
     fixed_now = datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(booking, "_now_utc", lambda: fixed_now)
 

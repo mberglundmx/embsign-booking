@@ -629,11 +629,7 @@ describe("bookingApp", () => {
     fullDayApp.app.selectedResourceId = 2;
     fullDayApp.app.days = ["2026-03-07", "2026-03-08"];
     await fullDayApp.app.refreshSlots();
-    expect(fullDayApp.api.getAvailabilityRange).toHaveBeenCalledWith(
-      2,
-      "2026-03-07",
-      "2026-03-08"
-    );
+    expect(fullDayApp.api.getAvailabilityRange).toHaveBeenCalledWith(2, "2026-03-07", "2026-03-08");
     expect(fullDayApp.app.fullDayAvailability["2026-03-07"]).toBe(false);
     expect(fullDayApp.app.fullDayAvailability["2026-03-08"]).toBe(true);
 
