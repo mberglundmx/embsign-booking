@@ -43,7 +43,9 @@ function getDateString(date) {
 
 function getUpcomingDays(count, startOffset = 0) {
   const today = new Date();
-  return Array.from({ length: count }, (_, index) => getDateString(addDays(today, index + startOffset)));
+  return Array.from({ length: count }, (_, index) =>
+    getDateString(addDays(today, index + startOffset))
+  );
 }
 
 function formatDate(dateString) {
