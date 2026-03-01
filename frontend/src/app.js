@@ -12,6 +12,17 @@ const TIME_SLOT_DAYS_VISIBLE = 4;
 const WEEKDAY_LABELS = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
 const DEMO_RFID_UID = import.meta.env.VITE_RFID_UID || "UID123";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
+const DEFAULT_IDLE_TIMEOUT_SECONDS = 600;
+const DEFAULT_SESSION_TOUCH_MIN_INTERVAL_MS = 30000;
+
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const IDLE_TIMEOUT_MS =
+  parsePositiveInteger(import.meta.env.VITE_IDLE_TIMEOUT_SECONDS, DEFAULT_IDLE_TIMEOUT_SECONDS) *
+  1000;
 
 let apiPromise = null;
 
@@ -141,6 +152,13 @@ export function createBookingApp(options = {}) {
   const modeDetector = options.modeDetector ?? detectMode;
   const useMocks = options.useMocks ?? USE_MOCKS;
   const demoRfidUid = options.demoRfidUid ?? DEMO_RFID_UID;
+  const idleTimeoutMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
+  const defaultSessionTouchIntervalMs = Math.max(
+    1000,
+    Math.min(DEFAULT_SESSION_TOUCH_MIN_INTERVAL_MS, Math.floor(idleTimeoutMs / 2))
+  );
+  const sessionTouchMinIntervalMs =
+    options.sessionTouchMinIntervalMs ?? defaultSessionTouchIntervalMs;
 
   return {
     mode: DEFAULT_MODE,
@@ -151,6 +169,7 @@ export function createBookingApp(options = {}) {
     rfidInput: "",
     rfidBuffer: "",
     rfidListenerBound: false,
+    activityListenerBound: false,
     resources: [],
     bookings: [],
     days: [],
@@ -175,11 +194,18 @@ export function createBookingApp(options = {}) {
       price: 0
     },
     errorTimeoutId: null,
+    idleTimeoutMs,
+    inactivityTimeoutId: null,
+    lastActivityAt: 0,
+    sessionTouchInFlight: false,
+    lastSessionTouchAt: 0,
+    sessionTouchMinIntervalMs,
 
     async init() {
       this.mode = modeDetector();
       this.days = getUpcomingDays(FULL_DAY_COUNT);
       this.bindRfidListener();
+      this.bindActivityListener();
       if (!useMocks) {
         const api = await getApiClient();
         api.logBackendStatus?.();
@@ -280,6 +306,99 @@ export function createBookingApp(options = {}) {
       this.rfidListenerBound = true;
     },
 
+    bindActivityListener() {
+      if (this.activityListenerBound) return;
+      const activityHandler = () => {
+        this.registerUserActivity();
+      };
+      ["pointerdown", "keydown", "touchstart", "wheel"].forEach((eventName) => {
+        runtimeWindow.addEventListener(eventName, activityHandler);
+      });
+      this.activityListenerBound = true;
+    },
+
+    registerUserActivity() {
+      if (!this.isAuthenticated) return;
+      this.lastActivityAt = Date.now();
+      this.scheduleInactivityLogout();
+      this.touchSession();
+    },
+
+    startSessionActivityTracking() {
+      if (!this.isAuthenticated) return;
+      this.lastActivityAt = Date.now();
+      this.lastSessionTouchAt = 0;
+      this.scheduleInactivityLogout();
+      this.touchSession();
+    },
+
+    stopSessionActivityTracking() {
+      if (this.inactivityTimeoutId) {
+        runtimeWindow.clearTimeout(this.inactivityTimeoutId);
+      }
+      this.inactivityTimeoutId = null;
+      this.lastActivityAt = 0;
+      this.lastSessionTouchAt = 0;
+      this.sessionTouchInFlight = false;
+    },
+
+    scheduleInactivityLogout() {
+      if (this.inactivityTimeoutId) {
+        runtimeWindow.clearTimeout(this.inactivityTimeoutId);
+      }
+      if (!this.isAuthenticated) {
+        this.inactivityTimeoutId = null;
+        return;
+      }
+      const elapsedMs = Date.now() - this.lastActivityAt;
+      const remainingMs = this.idleTimeoutMs - elapsedMs;
+      if (remainingMs <= 0) {
+        this.inactivityTimeoutId = null;
+        this.logoutForInactivity();
+        return;
+      }
+      this.inactivityTimeoutId = runtimeWindow.setTimeout(() => {
+        if (!this.isAuthenticated) {
+          this.inactivityTimeoutId = null;
+          return;
+        }
+        if (Date.now() - this.lastActivityAt >= this.idleTimeoutMs) {
+          this.inactivityTimeoutId = null;
+          this.logoutForInactivity();
+          return;
+        }
+        this.scheduleInactivityLogout();
+      }, remainingMs);
+    },
+
+    logoutForInactivity() {
+      if (!this.isAuthenticated) return;
+      this.logout();
+      this.showError("Sessionen har gått ut på grund av inaktivitet. Logga in igen.");
+    },
+
+    async touchSession() {
+      if (!this.isAuthenticated || this.sessionTouchInFlight) {
+        return;
+      }
+      const now = Date.now();
+      if (now - this.lastSessionTouchAt < this.sessionTouchMinIntervalMs) {
+        return;
+      }
+      this.sessionTouchInFlight = true;
+      this.lastSessionTouchAt = now;
+      try {
+        const api = await getApiClient();
+        if (typeof api.touchSession === "function") {
+          await api.touchSession();
+        }
+      } catch (error) {
+        this.handleSessionExpired(error);
+      } finally {
+        this.sessionTouchInFlight = false;
+      }
+    },
+
     async submitRfidInput() {
       const value = this.rfidInput.trim();
       if (!value) return;
@@ -321,6 +440,7 @@ export function createBookingApp(options = {}) {
         this.userId = result.apartment_id ?? result.userId ?? null;
         this.rfidInput = "";
         this.passwordUpdateMessage = "";
+        this.startSessionActivityTracking();
         await this.loadResources();
         await this.loadBookings();
         await this.refreshSlots();
@@ -346,6 +466,7 @@ export function createBookingApp(options = {}) {
         this.isAuthenticated = true;
         this.userId = result.apartment_id ?? result.userId ?? null;
         this.passwordUpdateMessage = "";
+        this.startSessionActivityTracking();
         await this.loadResources();
         await this.loadBookings();
         await this.refreshSlots();
@@ -420,6 +541,7 @@ export function createBookingApp(options = {}) {
     },
 
     logout() {
+      this.stopSessionActivityTracking();
       this.isAuthenticated = false;
       this.userId = null;
       this.userIdInput = "";

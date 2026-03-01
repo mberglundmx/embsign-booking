@@ -16,8 +16,12 @@ function createWindowMock() {
   return {
     listeners,
     addEventListener: vi.fn((eventName, callback) => {
-      listeners[eventName] = callback;
+      listeners[eventName] = listeners[eventName] ?? [];
+      listeners[eventName].push(callback);
     }),
+    dispatchEvent: (eventName, event) => {
+      (listeners[eventName] ?? []).forEach((callback) => callback(event));
+    },
     setTimeout: globalThis.setTimeout.bind(globalThis),
     clearTimeout: globalThis.clearTimeout.bind(globalThis)
   };
@@ -90,6 +94,7 @@ function createApiMock(overrides = {}) {
     }),
     bookSlot: vi.fn().mockResolvedValue({ booking_id: 99 }),
     cancelBooking: vi.fn().mockResolvedValue({ status: "ok" }),
+    touchSession: vi.fn().mockResolvedValue({ status: "ok", apartment_id: "1-1201" }),
     ...overrides
   };
 }
@@ -99,6 +104,8 @@ function createApp({
   mode = "desktop",
   useMocks = true,
   demoRfidUid = "DEMO-UID",
+  idleTimeoutMs,
+  sessionTouchMinIntervalMs,
   windowObject = createWindowMock()
 } = {}) {
   const api = createApiMock(apiOverrides);
@@ -108,6 +115,8 @@ function createApp({
     modeDetector: () => mode,
     useMocks,
     demoRfidUid,
+    idleTimeoutMs,
+    sessionTouchMinIntervalMs,
     windowObject
   });
   return { app, api, getApiClient, windowObject };
@@ -135,23 +144,30 @@ describe("bookingApp", () => {
     expect(app.mode).toBe("pos");
     expect(app.days.length).toBeGreaterThan(0);
     expect(app.rfidListenerBound).toBe(true);
-    expect(windowObject.addEventListener).toHaveBeenCalledTimes(2);
+    expect(app.activityListenerBound).toBe(true);
+    expect(windowObject.addEventListener).toHaveBeenCalledTimes(6);
+    const events = windowObject.addEventListener.mock.calls.map(([eventName]) => eventName);
+    expect(events.filter((eventName) => eventName === "keydown")).toHaveLength(2);
+    expect(events).toContain("paste");
+    expect(events).toContain("pointerdown");
+    expect(events).toContain("touchstart");
+    expect(events).toContain("wheel");
     expect(api.logBackendStatus).toHaveBeenCalledTimes(1);
   });
 
-  it("hanterar RFID-scanning via tangentbord och paste i POS-läge", () => {
+  it("hanterar RFID-scanning via tangentbord och paste i POS-läge", async () => {
     const { app, windowObject } = createApp({ mode: "pos" });
     app.mode = "pos";
     app.submitRfidInput = vi.fn();
-    app.bindRfidListener();
+    await app.init();
 
-    windowObject.listeners.keydown({ key: "1" });
-    windowObject.listeners.keydown({ key: "2" });
-    windowObject.listeners.keydown({ key: "Enter" });
+    windowObject.dispatchEvent("keydown", { key: "1" });
+    windowObject.dispatchEvent("keydown", { key: "2" });
+    windowObject.dispatchEvent("keydown", { key: "Enter" });
     expect(app.rfidInput).toBe("12");
     expect(app.submitRfidInput).toHaveBeenCalledTimes(1);
 
-    windowObject.listeners.paste({
+    windowObject.dispatchEvent("paste", {
       clipboardData: {
         getData: () => " UID-PASTE "
       }
@@ -160,7 +176,7 @@ describe("bookingApp", () => {
     expect(app.submitRfidInput).toHaveBeenCalledTimes(2);
 
     app.isAuthenticated = true;
-    windowObject.listeners.keydown({ key: "9" });
+    windowObject.dispatchEvent("keydown", { key: "9" });
     expect(app.rfidBuffer).toBe("");
   });
 
@@ -416,6 +432,69 @@ describe("bookingApp", () => {
     expect(app.rfidBuffer).toBe("");
     expect(app.errorMessage).toBe("");
     expect(app.confirm.open).toBe(false);
+  });
+
+  it("loggar ut automatiskt efter inaktivitet utan klick", () => {
+    vi.useFakeTimers();
+    const { app } = createApp({ idleTimeoutMs: 1000 });
+    app.showError = vi.fn();
+    app.isAuthenticated = true;
+    app.userId = "1-1201";
+    app.startSessionActivityTracking();
+
+    vi.advanceTimersByTime(1001);
+
+    expect(app.isAuthenticated).toBe(false);
+    expect(app.userId).toBeNull();
+    expect(app.showError).toHaveBeenCalledWith(
+      "Sessionen har gått ut på grund av inaktivitet. Logga in igen."
+    );
+  });
+
+  it("återställer inaktivitetstimer när användaren är aktiv", async () => {
+    vi.useFakeTimers();
+    const { app, windowObject } = createApp({
+      idleTimeoutMs: 1000,
+      sessionTouchMinIntervalMs: 0
+    });
+    app.showError = vi.fn();
+    await app.init();
+    app.isAuthenticated = true;
+    app.userId = "1-1201";
+    app.startSessionActivityTracking();
+    await Promise.resolve();
+
+    vi.advanceTimersByTime(700);
+    windowObject.dispatchEvent("pointerdown", {});
+    await Promise.resolve();
+    vi.advanceTimersByTime(700);
+    expect(app.isAuthenticated).toBe(true);
+
+    vi.advanceTimersByTime(301);
+    expect(app.isAuthenticated).toBe(false);
+    expect(app.showError).toHaveBeenCalledWith(
+      "Sessionen har gått ut på grund av inaktivitet. Logga in igen."
+    );
+  });
+
+  it("aktivitetsping loggar ut direkt vid 401", async () => {
+    const { app } = createApp({
+      apiOverrides: {
+        touchSession: vi.fn().mockRejectedValue({ status: 401 })
+      },
+      sessionTouchMinIntervalMs: 0
+    });
+    app.showError = vi.fn();
+    await app.init();
+    app.isAuthenticated = true;
+    app.userId = "1-1201";
+    app.startSessionActivityTracking();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(app.isAuthenticated).toBe(false);
+    expect(app.userId).toBeNull();
+    expect(app.showError).toHaveBeenCalledWith("Sessionen har gått ut. Logga in igen.");
   });
 
   it("loadBookings hanterar både parametriserat och parameterlöst API", async () => {

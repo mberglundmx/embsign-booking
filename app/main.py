@@ -178,6 +178,15 @@ def get_availability_range(
     return {"availability": availability}
 
 
+@app.get("/session")
+def get_session_state(session=Depends(require_session)):
+    return {
+        "status": "ok",
+        "apartment_id": session["apartment_id"],
+        "expires_at": session["expires_at"],
+    }
+
+
 @app.get("/resources", response_model=ResourcesResponse)
 def list_resources(session=Depends(require_session), conn=Depends(get_db)):
     rows = conn.execute(

@@ -70,6 +70,9 @@ describe("api", () => {
         json: vi.fn()
       })
       .mockResolvedValueOnce(createResponse({ jsonData: { status: "ok" } }))
+      .mockResolvedValueOnce(
+        createResponse({ jsonData: { status: "ok", apartment_id: "1-1201" } })
+      )
       .mockResolvedValueOnce(createResponse({ jsonData: { slots: [] } }));
 
     const api = await loadApiModule();
@@ -87,6 +90,7 @@ describe("api", () => {
     });
     const canceled = await api.cancelBooking(77);
     const passwordResult = await api.updateMobilePassword("new-secret");
+    const session = await api.touchSession();
     const slotsWithoutParams = await api.getSlots();
 
     expect(resources).toEqual([{ id: 1 }]);
@@ -96,6 +100,7 @@ describe("api", () => {
     expect(booked.booking_id).toBe(77);
     expect(canceled).toBeNull();
     expect(passwordResult.status).toBe("ok");
+    expect(session).toEqual({ status: "ok", apartment_id: "1-1201" });
     expect(slotsWithoutParams).toEqual([]);
     expect(global.fetch).toHaveBeenCalledWith(
       "http://api.test/availability-range?resource_id=2&start_date=2026-03-06&end_date=2026-03-08",
@@ -111,6 +116,10 @@ describe("api", () => {
         method: "POST",
         body: JSON.stringify({ new_password: "new-secret" })
       })
+    );
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://api.test/session",
+      expect.objectContaining({ credentials: "include" })
     );
   });
 

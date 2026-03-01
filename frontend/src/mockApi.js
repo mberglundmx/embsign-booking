@@ -200,6 +200,16 @@ export function getBookings(apartmentId = activeApartmentId) {
     });
 }
 
+export function touchSession() {
+  const user = users.find((item) => item.apartment_id === activeApartmentId);
+  if (!user) {
+    const error = new Error("unauthorized");
+    error.status = 401;
+    throw error;
+  }
+  return { status: "ok", apartment_id: activeApartmentId };
+}
+
 export function bookSlot(payload) {
   const resourceId = Number(payload.resource_id);
   const apartmentId = payload.apartment_id ?? activeApartmentId;

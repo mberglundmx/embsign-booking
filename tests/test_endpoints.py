@@ -62,6 +62,19 @@ def test_mobile_login_invalid(client, seeded_apartment):
     assert response.status_code == 401
 
 
+def test_session_endpoint_requires_auth_and_returns_session_state(client, db_conn, seeded_apartment):
+    unauthorized = client.get("/session")
+    assert unauthorized.status_code == 401
+
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+    response = client.get("/session", cookies={"session": token})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["apartment_id"] == seeded_apartment
+    assert data["expires_at"]
+
+
 def test_mobile_password_update_changes_mobile_login(client, db_conn, seeded_apartment):
     token = create_session(db_conn, seeded_apartment, is_admin=False)
     update_response = client.post(

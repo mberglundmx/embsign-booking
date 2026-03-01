@@ -77,6 +77,10 @@ export async function getBookings() {
   return data.bookings ?? [];
 }
 
+export async function touchSession() {
+  return request("/session");
+}
+
 export async function getSlots(resourceId, date) {
   const params = new URLSearchParams();
   if (resourceId) params.set("resource_id", String(resourceId));

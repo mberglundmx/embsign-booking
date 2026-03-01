@@ -77,16 +77,21 @@ def get_session(conn, token: str) -> Optional[Dict[str, str]]:
     if row is None:
         return None
     expires_at = datetime.fromisoformat(row["expires_at"])
-    if _now() > expires_at:
+    now = _now()
+    if now > expires_at:
         conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
         conn.commit()
         return None
+    extended_expires = now + timedelta(seconds=SESSION_TTL_SECONDS)
     conn.execute(
-        "UPDATE sessions SET last_seen_at = ? WHERE token = ?",
-        (_to_iso(_now()), token),
+        "UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token = ?",
+        (_to_iso(now), _to_iso(extended_expires), token),
     )
     conn.commit()
-    return dict(row)
+    session = dict(row)
+    session["last_seen_at"] = _to_iso(now)
+    session["expires_at"] = _to_iso(extended_expires)
+    return session
 
 
 def parse_apartment_name(name: str) -> Optional[Dict[str, str]]:

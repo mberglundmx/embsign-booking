@@ -32,6 +32,29 @@ def test_get_session_removes_expired_session(db_conn, seeded_apartment, monkeypa
     assert row is None
 
 
+def test_get_session_extends_expiry_on_activity(db_conn, seeded_apartment, monkeypatch):
+    created_at = datetime(2026, 1, 1, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(auth, "SESSION_TTL_SECONDS", 120)
+    monkeypatch.setattr(auth, "_now", lambda: created_at)
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+
+    seen_at = created_at + timedelta(seconds=45)
+    monkeypatch.setattr(auth, "_now", lambda: seen_at)
+    session = get_session(db_conn, token)
+
+    assert session is not None
+    assert session["last_seen_at"] == seen_at.isoformat()
+    assert session["expires_at"] == (seen_at + timedelta(seconds=120)).isoformat()
+
+    row = db_conn.execute(
+        "SELECT last_seen_at, expires_at FROM sessions WHERE token = ?",
+        (token,),
+    ).fetchone()
+    assert row is not None
+    assert row["last_seen_at"] == seen_at.isoformat()
+    assert row["expires_at"] == (seen_at + timedelta(seconds=120)).isoformat()
+
+
 def test_build_apartment_id_helper():
     assert auth._build_apartment_id("4", "1308") == "4-1308"
 
