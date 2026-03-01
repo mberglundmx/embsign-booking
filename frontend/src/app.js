@@ -520,7 +520,10 @@ Alpine.data("bookingApp", () => ({
             return [date, normalizeSlots(slots)];
           })
         );
-        if (requestToken !== this.availabilityRequestToken || resourceId !== this.selectedResourceId) {
+        if (
+          requestToken !== this.availabilityRequestToken ||
+          resourceId !== this.selectedResourceId
+        ) {
           return;
         }
         this.slotsByDate = Object.fromEntries(entries);
@@ -534,7 +537,10 @@ Alpine.data("bookingApp", () => ({
             return [date, available];
           })
         );
-        if (requestToken !== this.availabilityRequestToken || resourceId !== this.selectedResourceId) {
+        if (
+          requestToken !== this.availabilityRequestToken ||
+          resourceId !== this.selectedResourceId
+        ) {
           return;
         }
         this.fullDayAvailability = Object.fromEntries(availabilityEntries);

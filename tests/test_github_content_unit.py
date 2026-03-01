@@ -28,7 +28,10 @@ def test_github_url_to_api_converts_supported_formats():
 def test_github_url_to_api_returns_input_for_unsupported_urls():
     raw_without_filepath = "https://raw.githubusercontent.com/acme/repo/main"
     assert github_url_to_api(raw_without_filepath) == raw_without_filepath
-    assert github_url_to_api("https://example.com/something.txt") == "https://example.com/something.txt"
+    assert (
+        github_url_to_api("https://example.com/something.txt")
+        == "https://example.com/something.txt"
+    )
 
 
 def test_fetch_text_uses_token_header_and_utf8_decode(monkeypatch):
@@ -61,7 +64,9 @@ def test_fetch_text_uses_token_header_and_utf8_decode(monkeypatch):
     )
 
     assert text == "hej"
-    assert captured["url"] == "https://api.github.com/repos/acme/repo/contents/path/file.txt?ref=main"
+    assert (
+        captured["url"] == "https://api.github.com/repos/acme/repo/contents/path/file.txt?ref=main"
+    )
     assert captured["headers"]["authorization"] == "token token-123"
     assert captured["timeout"] == 7
 

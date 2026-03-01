@@ -2,7 +2,10 @@ import app.resource_config as resource_config
 
 
 def test_derive_booking_yaml_url_from_csv_rejects_invalid_shapes():
-    assert resource_config._derive_booking_yaml_url_from_csv("https://example.com/rfid_tags.csv") is None
+    assert (
+        resource_config._derive_booking_yaml_url_from_csv("https://example.com/rfid_tags.csv")
+        is None
+    )
     assert (
         resource_config._derive_booking_yaml_url_from_csv("https://api.github.com/repos/acme/repo")
         is None
@@ -41,10 +44,16 @@ def test_load_booking_objects_handles_fetch_and_yaml_errors(db_conn, monkeypatch
         "fetch_text",
         lambda url, github_token: (_ for _ in ()).throw(RuntimeError("network")),
     )
-    assert resource_config.load_booking_objects(db_conn, config_url="https://example.com/booking.yaml") == 0
+    assert (
+        resource_config.load_booking_objects(db_conn, config_url="https://example.com/booking.yaml")
+        == 0
+    )
 
     monkeypatch.setattr(resource_config, "fetch_text", lambda url, github_token: "[")
-    assert resource_config.load_booking_objects(db_conn, config_url="https://example.com/booking.yaml") == 0
+    assert (
+        resource_config.load_booking_objects(db_conn, config_url="https://example.com/booking.yaml")
+        == 0
+    )
 
 
 def test_load_booking_objects_skips_missing_name_and_repairs_invalid_slot_window(
@@ -62,7 +71,9 @@ bookable_objects:
 """
 
     monkeypatch.setattr(resource_config, "fetch_text", lambda url, github_token: yaml_payload)
-    inserted = resource_config.load_booking_objects(db_conn, config_url="https://example.com/booking.yaml")
+    inserted = resource_config.load_booking_objects(
+        db_conn, config_url="https://example.com/booking.yaml"
+    )
     assert inserted == 1
 
     row = db_conn.execute(

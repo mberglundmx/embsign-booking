@@ -119,9 +119,12 @@ def test_get_apartment_house_uses_prefix_when_missing_in_db(db_conn):
 def test_resource_access_rules_and_admin_bypass(db_conn, seeded_apartment):
     denied_row = {"allow_houses": "1", "deny_apartment_ids": ""}
     assert booking._resource_access_allowed(denied_row, seeded_apartment, None) is False
-    assert booking._resource_access_allowed(
-        {"allow_houses": "", "deny_apartment_ids": seeded_apartment}, seeded_apartment, "1"
-    ) is False
+    assert (
+        booking._resource_access_allowed(
+            {"allow_houses": "", "deny_apartment_ids": seeded_apartment}, seeded_apartment, "1"
+        )
+        is False
+    )
 
     rid = _insert_resource(db_conn, name="Admin resource")
     assert booking.can_access_resource(db_conn, rid, seeded_apartment, is_admin=True) is True
@@ -168,7 +171,10 @@ def test_cancel_booking_as_admin_deletes_other_apartments_booking(
 
 
 def test_list_slots_branch_coverage_for_none_and_full_day(db_conn, seeded_apartment, monkeypatch):
-    assert booking.list_slots(db_conn, resource_id=None, date_str=None, apartment_id=seeded_apartment) == []
+    assert (
+        booking.list_slots(db_conn, resource_id=None, date_str=None, apartment_id=seeded_apartment)
+        == []
+    )
 
     restricted_resource = _insert_resource(db_conn, name="Restricted")
     no_session_slots = booking.list_slots(
@@ -201,7 +207,9 @@ def test_list_slots_branch_coverage_for_none_and_full_day(db_conn, seeded_apartm
         ),
     )
     db_conn.commit()
-    monkeypatch.setattr(booking, "_now_utc", lambda: datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc))
+    monkeypatch.setattr(
+        booking, "_now_utc", lambda: datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc)
+    )
 
     slots = booking.list_slots(
         db_conn,
