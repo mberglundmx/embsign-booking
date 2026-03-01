@@ -10,6 +10,11 @@ const DEFAULT_MODE = "desktop";
 const FULL_DAY_COUNT = 30;
 const TIME_SLOT_DAYS_VISIBLE = 4;
 const WEEKDAY_LABELS = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
+const NEXT_AVAILABILITY_LOADING = "__loading__";
+const NEXT_AVAILABILITY_NONE = "__none__";
+const RAW_CONFIGURED_PUBLIC_HOSTNAME = import.meta.env.VITE_PUBLIC_HOSTNAME ?? "";
+const RAW_FRONTEND_ORIGINS =
+  import.meta.env.VITE_FRONTEND_ORIGINS ?? import.meta.env.FRONTEND_ORIGINS ?? "";
 const DEMO_RFID_UID = import.meta.env.VITE_RFID_UID || "UID123";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 
@@ -69,6 +74,29 @@ function formatDateLong(dateString) {
 function formatTimeRange(startIso, endIso) {
   return formatWallClockRange(startIso, endIso);
 }
+
+export function getHostnameFromAddress(value = "") {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const withProtocol = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
+  try {
+    return new URL(withProtocol).host;
+  } catch {
+    return trimmed.replace(/^\/+/, "").replace(/\/.*$/, "");
+  }
+}
+
+export function getHostnameFromFrontendOrigins(originsValue = "") {
+  const firstOrigin = originsValue
+    .split(",")
+    .map((item) => item.trim())
+    .find(Boolean);
+  if (!firstOrigin) return "";
+  return getHostnameFromAddress(firstOrigin);
+}
+
+const CONFIGURED_PUBLIC_HOSTNAME = getHostnameFromAddress(RAW_CONFIGURED_PUBLIC_HOSTNAME);
+const CONFIGURED_FRONTEND_ORIGINS_HOSTNAME = getHostnameFromFrontendOrigins(RAW_FRONTEND_ORIGINS);
 
 function normalizeResources(resources) {
   return resources.map((resource) => ({
@@ -145,6 +173,7 @@ export function createBookingApp(options = {}) {
   return {
     mode: DEFAULT_MODE,
     isAuthenticated: false,
+    authenticatedStep: "setup",
     userId: null,
     userIdInput: "",
     passwordInput: "",
@@ -152,7 +181,10 @@ export function createBookingApp(options = {}) {
     rfidBuffer: "",
     rfidListenerBound: false,
     resources: [],
+    nextAvailableByResourceId: {},
+    nextAvailabilityRequestToken: 0,
     bookings: [],
+    bookingUrlPath: "/booking",
     days: [],
     selectedResourceId: null,
     timeSlotStartIndex: 0,
@@ -210,6 +242,18 @@ export function createBookingApp(options = {}) {
       return this.mode === "pos";
     },
 
+    get isSetupStep() {
+      return this.authenticatedStep === "setup";
+    },
+
+    get isScheduleStep() {
+      return this.authenticatedStep === "schedule";
+    },
+
+    get canGoBackStep() {
+      return this.isAuthenticated && this.isScheduleStep;
+    },
+
     get timeSlotDays() {
       return this.days.slice(
         this.timeSlotStartIndex,
@@ -252,6 +296,41 @@ export function createBookingApp(options = {}) {
       return formatDateLong(dateString);
     },
 
+    isNextAvailabilityLoading(resourceId) {
+      return this.nextAvailableByResourceId[resourceId] === NEXT_AVAILABILITY_LOADING;
+    },
+
+    hasNoNextAvailability(resourceId) {
+      return this.nextAvailableByResourceId[resourceId] === NEXT_AVAILABILITY_NONE;
+    },
+
+    getNextAvailabilityLabel(resourceId) {
+      const label = this.nextAvailableByResourceId[resourceId];
+      if (!label || label === NEXT_AVAILABILITY_LOADING || label === NEXT_AVAILABILITY_NONE) {
+        return "";
+      }
+      return label;
+    },
+
+    get publicBookingHostname() {
+      if (CONFIGURED_PUBLIC_HOSTNAME) {
+        return CONFIGURED_PUBLIC_HOSTNAME;
+      }
+      if (CONFIGURED_FRONTEND_ORIGINS_HOSTNAME) {
+        return CONFIGURED_FRONTEND_ORIGINS_HOSTNAME;
+      }
+      return runtimeWindow.location?.host ?? "";
+    },
+
+    get publicBookingDisplay() {
+      const hostname = this.publicBookingHostname;
+      const path = this.bookingUrlPath || "/booking";
+      if (!hostname) {
+        return path;
+      }
+      return `${hostname}${path}`;
+    },
+
     bindRfidListener() {
       if (this.rfidListenerBound) return;
       runtimeWindow.addEventListener("keydown", (event) => {
@@ -292,6 +371,9 @@ export function createBookingApp(options = {}) {
       this.timeSlotStartIndex = 0;
       this.resetAvailabilityData();
       await this.refreshSlots();
+      if (this.isAuthenticated && this.isSetupStep) {
+        this.authenticatedStep = "schedule";
+      }
     },
 
     get canNavigateTimeSlotsBack() {
@@ -310,6 +392,12 @@ export function createBookingApp(options = {}) {
       await this.refreshSlots();
     },
 
+    goBackStep() {
+      if (this.authenticatedStep === "schedule") {
+        this.authenticatedStep = "setup";
+      }
+    },
+
     async loginPos(uidOverride = "") {
       this.loading = true;
       this.clearError();
@@ -318,8 +406,11 @@ export function createBookingApp(options = {}) {
         const uid = uidOverride || demoRfidUid;
         const result = await api.loginWithRfid(uid);
         this.isAuthenticated = true;
+        this.authenticatedStep = "setup";
+        this.bookingUrlPath = result.booking_url ?? "/booking";
         this.userId = result.apartment_id ?? result.userId ?? null;
         this.rfidInput = "";
+        this.passwordFormOpen = false;
         this.passwordUpdateMessage = "";
         await this.loadResources();
         await this.loadBookings();
@@ -344,7 +435,10 @@ export function createBookingApp(options = {}) {
           this.passwordInput.trim()
         );
         this.isAuthenticated = true;
+        this.authenticatedStep = "setup";
+        this.bookingUrlPath = result.booking_url ?? "/booking";
         this.userId = result.apartment_id ?? result.userId ?? null;
+        this.passwordFormOpen = false;
         this.passwordUpdateMessage = "";
         await this.loadResources();
         await this.loadBookings();
@@ -421,6 +515,7 @@ export function createBookingApp(options = {}) {
 
     logout() {
       this.isAuthenticated = false;
+      this.authenticatedStep = "setup";
       this.userId = null;
       this.userIdInput = "";
       this.passwordInput = "";
@@ -430,9 +525,12 @@ export function createBookingApp(options = {}) {
       this.rfidInput = "";
       this.rfidBuffer = "";
       this.passwordUpdateMessage = "";
+      this.bookingUrlPath = "/booking";
       this.closeConfirm();
       this.clearError();
       this.resources = [];
+      this.nextAvailabilityRequestToken += 1;
+      this.nextAvailableByResourceId = {};
       this.selectedResourceId = null;
       this.bookings = [];
       this.resetAvailabilityData();
@@ -675,15 +773,103 @@ export function createBookingApp(options = {}) {
       }
     },
 
+    getResourceVisibleDays(resource) {
+      const maxAdvanceDays = resource?.maxAdvanceDays ?? FULL_DAY_COUNT;
+      const minAdvanceDays = resource?.minAdvanceDays ?? 0;
+      const dayCount = Math.max(0, maxAdvanceDays - minAdvanceDays);
+      return getUpcomingDays(dayCount, minAdvanceDays);
+    },
+
+    async findNextAvailabilityLabel(api, resource) {
+      const visibleDays = this.getResourceVisibleDays(resource);
+      if (visibleDays.length === 0) {
+        return NEXT_AVAILABILITY_NONE;
+      }
+
+      if (resource.bookingType === "full-day") {
+        if (typeof api.getAvailabilityRange === "function") {
+          const availability = await api.getAvailabilityRange(
+            resource.id,
+            visibleDays[0],
+            visibleDays[visibleDays.length - 1]
+          );
+          const firstAvailableDay = availability.find((item) =>
+            Boolean(item?.is_available ?? item?.available)
+          );
+          if (firstAvailableDay?.date) {
+            return this.formatDayLong(firstAvailableDay.date);
+          }
+          return NEXT_AVAILABILITY_NONE;
+        }
+
+        for (const date of visibleDays) {
+          const slots = normalizeSlots(await api.getSlots(resource.id, date));
+          const isAvailable = slots.length > 0 && !slots[0].isBooked && !slots[0].isPast;
+          if (isAvailable) {
+            return this.formatDayLong(date);
+          }
+        }
+        return NEXT_AVAILABILITY_NONE;
+      }
+
+      for (const date of visibleDays) {
+        const slots = normalizeSlots(await api.getSlots(resource.id, date));
+        const firstAvailableSlot = slots.find((slot) => !slot.isBooked && !slot.isPast);
+        if (firstAvailableSlot) {
+          return `${this.formatDayLong(date)} ${firstAvailableSlot.label}`;
+        }
+      }
+
+      return NEXT_AVAILABILITY_NONE;
+    },
+
+    async loadNextAvailability() {
+      const resources = [...this.resources];
+      const requestToken = ++this.nextAvailabilityRequestToken;
+      if (resources.length === 0) {
+        this.nextAvailableByResourceId = {};
+        return;
+      }
+
+      try {
+        const api = await getApiClient();
+        const entries = await Promise.all(
+          resources.map(async (resource) => {
+            try {
+              const label = await this.findNextAvailabilityLabel(api, resource);
+              return [resource.id, label];
+            } catch {
+              return [resource.id, NEXT_AVAILABILITY_NONE];
+            }
+          })
+        );
+        if (requestToken !== this.nextAvailabilityRequestToken) {
+          return;
+        }
+        this.nextAvailableByResourceId = Object.fromEntries(entries);
+      } catch {
+        if (requestToken !== this.nextAvailabilityRequestToken) {
+          return;
+        }
+        this.nextAvailableByResourceId = Object.fromEntries(
+          resources.map((resource) => [resource.id, NEXT_AVAILABILITY_NONE])
+        );
+      }
+    },
+
     async loadResources() {
       try {
         const api = await getApiClient();
         const resources = await api.getResources();
         this.resources = normalizeResources(resources);
+        this.nextAvailableByResourceId = Object.fromEntries(
+          this.resources.map((resource) => [resource.id, NEXT_AVAILABILITY_LOADING])
+        );
         this.selectedResourceId = this.resources[0]?.id ?? null;
         this.days = getUpcomingDays(this.getVisibleDayCount(), this.getMinAdvanceDays());
         this.timeSlotStartIndex = 0;
         this.resetAvailabilityData();
+        await this.loadNextAvailability();
       } catch (error) {
         if (this.handleSessionExpired(error)) {
           return;

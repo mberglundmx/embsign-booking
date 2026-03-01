@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createBookingApp, detectMode } from "../src/app";
+import {
+  createBookingApp,
+  detectMode,
+  getHostnameFromAddress,
+  getHostnameFromFrontendOrigins
+} from "../src/app";
 
 const BASE_RESOURCE = {
   id: 1,
@@ -127,6 +132,27 @@ describe("detectMode", () => {
   });
 });
 
+describe("hostname helpers", () => {
+  it("normaliserar host från adressvärden", () => {
+    expect(getHostnameFromAddress("https://bokning.example.se")).toBe("bokning.example.se");
+    expect(getHostnameFromAddress("http://bokning.example.se:5173/path")).toBe(
+      "bokning.example.se:5173"
+    );
+    expect(getHostnameFromAddress("bokning.example.se")).toBe("bokning.example.se");
+    expect(getHostnameFromAddress("")).toBe("");
+  });
+
+  it("hämtar första host från FRONTEND_ORIGINS-liknande lista", () => {
+    expect(
+      getHostnameFromFrontendOrigins("https://bokning.example.se, https://backup.example.se")
+    ).toBe("bokning.example.se");
+    expect(getHostnameFromFrontendOrigins("bokning.example.se,backup.example.se")).toBe(
+      "bokning.example.se"
+    );
+    expect(getHostnameFromFrontendOrigins("")).toBe("");
+  });
+});
+
 describe("bookingApp", () => {
   it("init sätter läge, binder RFID-listeners och loggar backend när mocks är av", async () => {
     const { app, api, windowObject } = createApp({ mode: "pos", useMocks: false });
@@ -207,6 +233,22 @@ describe("bookingApp", () => {
     expect(app.timeSlotStartIndex).toBe(1);
   });
 
+  it("stegnavigering öppnar schema vid resursval och kan gå tillbaka", async () => {
+    const { app } = createApp();
+    app.isAuthenticated = true;
+    app.resources = [{ id: 1, bookingType: "time-slot", maxAdvanceDays: 14, minAdvanceDays: 0 }];
+    app.refreshSlots = vi.fn().mockResolvedValue();
+
+    await app.selectResource(1);
+    expect(app.refreshSlots).toHaveBeenCalledTimes(1);
+    expect(app.authenticatedStep).toBe("schedule");
+    expect(app.canGoBackStep).toBe(true);
+
+    app.goBackStep();
+    expect(app.authenticatedStep).toBe("setup");
+    expect(app.canGoBackStep).toBe(false);
+  });
+
   it("loginPos använder demo-UID, sätter användare och laddar data", async () => {
     const { app, api } = createApp({ mode: "pos", demoRfidUid: "DEMO-42" });
     app.mode = "pos";
@@ -219,6 +261,7 @@ describe("bookingApp", () => {
 
     expect(api.loginWithRfid).toHaveBeenCalledWith("DEMO-42");
     expect(app.isAuthenticated).toBe(true);
+    expect(app.authenticatedStep).toBe("setup");
     expect(app.userId).toBe("1-1201");
     expect(app.passwordUpdateMessage).toBe("");
     expect(app.loading).toBe(false);
@@ -283,6 +326,7 @@ describe("bookingApp", () => {
 
     expect(api.loginWithPassword).toHaveBeenCalledWith("1-1201", "secret");
     expect(app.isAuthenticated).toBe(true);
+    expect(app.authenticatedStep).toBe("setup");
     expect(app.userId).toBe("1-1201");
 
     const invalid = createApp({
@@ -306,6 +350,33 @@ describe("bookingApp", () => {
     expect(backendDown.app.showError).toHaveBeenCalledWith(
       "Backend kunde inte nås. Kontrollera anslutningen."
     );
+  });
+
+  it("använder booking_url från login för publik bokningsadress", async () => {
+    const windowObject = createWindowMock();
+    windowObject.location = { host: "bokning.example.se" };
+    const { app } = createApp({
+      windowObject,
+      apiOverrides: {
+        loginWithPassword: vi.fn().mockResolvedValue({
+          apartment_id: "1-1201",
+          booking_url: "/mobil-boka"
+        })
+      }
+    });
+    app.userIdInput = "1-1201";
+    app.passwordInput = "1234";
+    app.loadResources = vi.fn().mockResolvedValue();
+    app.loadBookings = vi.fn().mockResolvedValue();
+    app.refreshSlots = vi.fn().mockResolvedValue();
+
+    await app.loginPassword();
+
+    expect(app.bookingUrlPath).toBe("/mobil-boka");
+    expect(app.publicBookingDisplay).toBe("bokning.example.se/mobil-boka");
+
+    app.logout();
+    expect(app.bookingUrlPath).toBe("/booking");
   });
 
   it("toggle/close password form och validering för nytt lösenord", async () => {
@@ -386,6 +457,7 @@ describe("bookingApp", () => {
   it("logout återställer all användarspecifik state", () => {
     const { app } = createApp();
     app.isAuthenticated = true;
+    app.authenticatedStep = "schedule";
     app.userId = "1-1201";
     app.userIdInput = "1-1201";
     app.passwordInput = "secret";
@@ -394,6 +466,8 @@ describe("bookingApp", () => {
     app.confirmPasswordInput = "abcd";
     app.passwordUpdateMessage = "ok";
     app.resources = [{ id: 1 }];
+    app.nextAvailabilityRequestToken = 2;
+    app.nextAvailableByResourceId = { 1: "måndag 3 mars 08:00-09:00" };
     app.selectedResourceId = 1;
     app.bookings = [{ id: 1 }];
     app.rfidInput = "UID";
@@ -404,12 +478,15 @@ describe("bookingApp", () => {
     app.logout();
 
     expect(app.isAuthenticated).toBe(false);
+    expect(app.authenticatedStep).toBe("setup");
     expect(app.userId).toBeNull();
     expect(app.userIdInput).toBe("");
     expect(app.passwordInput).toBe("");
     expect(app.passwordFormOpen).toBe(false);
     expect(app.passwordUpdateMessage).toBe("");
     expect(app.resources).toEqual([]);
+    expect(app.nextAvailabilityRequestToken).toBe(3);
+    expect(app.nextAvailableByResourceId).toEqual({});
     expect(app.selectedResourceId).toBeNull();
     expect(app.bookings).toEqual([]);
     expect(app.rfidInput).toBe("");
@@ -745,6 +822,12 @@ describe("bookingApp", () => {
     expect(app.resources).toHaveLength(2);
     expect(app.resources[0].price).toBe(250);
     expect(app.resources[1].bookingType).toBe("time-slot");
+    expect(app.isNextAvailabilityLoading(4)).toBe(false);
+    expect(app.getNextAvailabilityLabel(4)).not.toBe("");
+    expect(app.hasNoNextAvailability(4)).toBe(false);
+    expect(app.isNextAvailabilityLoading(5)).toBe(false);
+    expect(app.getNextAvailabilityLabel(5)).not.toBe("");
+    expect(app.hasNoNextAvailability(5)).toBe(false);
     expect(app.selectedResourceId).toBe(4);
     expect(app.days).toHaveLength(90);
   });
