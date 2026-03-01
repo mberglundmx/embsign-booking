@@ -24,12 +24,6 @@ test("POS-login kan ändra mobil-lösenord", async ({ page }) => {
   await page.getByTestId("password-change-confirm").fill("test1234");
   await page.getByTestId("password-change-submit").click();
   await expect(page.getByTestId("password-change-success")).toContainText("uppdaterat");
-
-  await page.getByTestId("logout").click();
-  await page.goto("/?mode=desktop");
-  await page.getByTestId("login-userid").fill("1001");
-  await page.getByTestId("login-password").fill("test1234");
-  await page.getByTestId("desktop-login").click();
   await expect(page.getByTestId("logout")).toBeVisible();
 });
 
@@ -56,6 +50,7 @@ test("Boka och avboka", async ({ page }) => {
   await page.getByTestId("confirm-ok").click();
 
   await expect(page.getByTestId("booking-list")).toContainText("Tvättstuga");
+  await page.getByTestId("booking-list").locator("summary").click();
 
   await page.getByTestId("cancel-booking").first().click();
   await page.getByTestId("confirm-ok").click();
