@@ -486,7 +486,8 @@ export function createBookingApp(options = {}) {
         }
         if (action === "time-slot") {
           const slot =
-            (this.slotsByDate[payload.date] ?? []).find((item) => item.id === payload.slotId) ?? null;
+            (this.slotsByDate[payload.date] ?? []).find((item) => item.id === payload.slotId) ??
+            null;
           if (!slot) {
             throw new Error("Slot saknas.");
           }

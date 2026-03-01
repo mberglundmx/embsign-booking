@@ -181,6 +181,7 @@ describe("bookingApp", () => {
 
   it("loginPos använder demo-UID, sätter användare och laddar data", async () => {
     const { app, api } = createApp({ mode: "pos", demoRfidUid: "DEMO-42" });
+    app.mode = "pos";
     app.loadResources = vi.fn().mockResolvedValue();
     app.loadBookings = vi.fn().mockResolvedValue();
     app.refreshSlots = vi.fn().mockResolvedValue();
@@ -196,6 +197,27 @@ describe("bookingApp", () => {
 
     await app.loginPos("UID-OVERRIDE");
     expect(api.loginWithRfid).toHaveBeenCalledWith("UID-OVERRIDE");
+  });
+
+  it("stöder lösenordsbyte även efter POS-inloggning", async () => {
+    const { app, api } = createApp({ mode: "pos", demoRfidUid: "UID-POS" });
+    app.mode = "pos";
+    app.loadResources = vi.fn().mockResolvedValue();
+    app.loadBookings = vi.fn().mockResolvedValue();
+    app.refreshSlots = vi.fn().mockResolvedValue();
+
+    await app.loginPos();
+    expect(api.loginWithRfid).toHaveBeenCalledWith("UID-POS");
+    expect(app.isPosMode).toBe(true);
+    expect(app.isAuthenticated).toBe(true);
+
+    app.togglePasswordForm();
+    app.newPasswordInput = "nytt1234";
+    app.confirmPasswordInput = "nytt1234";
+    await app.updateMobilePassword();
+
+    expect(api.updateMobilePassword).toHaveBeenCalledWith("nytt1234");
+    expect(app.passwordUpdateMessage).toContain("uppdaterat");
   });
 
   it("loginPos visar rätt felmeddelanden", async () => {

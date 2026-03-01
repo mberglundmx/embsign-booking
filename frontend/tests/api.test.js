@@ -29,13 +29,11 @@ describe("api", () => {
   });
 
   it("skickar inloggning och använder credentials+json-header", async () => {
-    global.fetch
-      .mockResolvedValueOnce(createResponse())
-      .mockResolvedValueOnce(
-        createResponse({
-          jsonData: { apartment_id: "1-1201", booking_url: "/booking" }
-        })
-      );
+    global.fetch.mockResolvedValueOnce(createResponse()).mockResolvedValueOnce(
+      createResponse({
+        jsonData: { apartment_id: "1-1201", booking_url: "/booking" }
+      })
+    );
 
     const api = await loadApiModule();
     const result = await api.loginWithPassword("1-1201", "secret");
@@ -106,16 +104,14 @@ describe("api", () => {
   });
 
   it("kastar backend-detalj vid fel", async () => {
-    global.fetch
-      .mockResolvedValueOnce(createResponse())
-      .mockResolvedValueOnce(
-        createResponse({
-          ok: false,
-          status: 401,
-          statusText: "Unauthorized",
-          jsonData: { detail: "invalid_credentials" }
-        })
-      );
+    global.fetch.mockResolvedValueOnce(createResponse()).mockResolvedValueOnce(
+      createResponse({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        jsonData: { detail: "invalid_credentials" }
+      })
+    );
 
     const api = await loadApiModule();
     await expect(api.loginWithPassword("1-1201", "wrong")).rejects.toMatchObject({
@@ -125,14 +121,12 @@ describe("api", () => {
   });
 
   it("faller tillbaka till statusText om fel-json inte kan tolkas", async () => {
-    global.fetch
-      .mockResolvedValueOnce(createResponse())
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        statusText: "Bad Request",
-        json: vi.fn().mockRejectedValue(new Error("not-json"))
-      });
+    global.fetch.mockResolvedValueOnce(createResponse()).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      json: vi.fn().mockRejectedValue(new Error("not-json"))
+    });
 
     const api = await loadApiModule();
     await expect(api.loginWithRfid("UID123")).rejects.toMatchObject({
@@ -159,9 +153,6 @@ describe("api", () => {
     global.fetch = vi.fn().mockRejectedValueOnce(new Error("offline"));
     const secondApi = await loadApiModule();
     await secondApi.logBackendStatus();
-    expect(console.warn).toHaveBeenCalledWith(
-      "[backend] health check failed",
-      expect.any(Error)
-    );
+    expect(console.warn).toHaveBeenCalledWith("[backend] health check failed", expect.any(Error));
   });
 });
