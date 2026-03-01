@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 _APARTMENT_PREFIX_SEPARATOR = "-"
+_MAX_AVAILABILITY_RANGE_DAYS = 366
 
 
 def parse_dt(value: str) -> datetime:
@@ -204,6 +205,93 @@ def has_overlap(conn, resource_id: int, apartment_id: str, start: str, end: str)
         (apartment_id,),
     )
     return _has_overlap_in_intervals(apartment_intervals, start_dt, end_dt)
+
+
+def list_full_day_availability_range(
+    conn,
+    resource_id: int,
+    start_date_str: str,
+    end_date_str: str,
+    apartment_id: str | None = None,
+    is_admin: bool = False,
+) -> List[Dict[str, object]]:
+    try:
+        start_date = datetime.fromisoformat(start_date_str).date()
+        end_date = datetime.fromisoformat(end_date_str).date()
+    except ValueError as exc:
+        raise ValueError("invalid_date") from exc
+    if end_date < start_date:
+        raise ValueError("invalid_date_range")
+    if (end_date - start_date).days >= _MAX_AVAILABILITY_RANGE_DAYS:
+        raise ValueError("date_range_too_large")
+
+    resource = conn.execute(
+        """
+        SELECT id, booking_type, max_future_days, min_future_days, allow_houses, deny_apartment_ids
+        FROM resources
+        WHERE id = ? AND is_active = 1
+        """,
+        (resource_id,),
+    ).fetchone()
+    if resource is None or resource["booking_type"] != "full-day":
+        return []
+    if not is_admin:
+        if apartment_id is None:
+            return []
+        apartment_house = _get_apartment_house(conn, apartment_id)
+        if not _resource_access_allowed(resource, apartment_id, apartment_house):
+            return []
+
+    range_start = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+    range_end = datetime.combine(
+        end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc
+    )
+    intervals = _load_intervals(
+        conn,
+        """
+        SELECT start_time, end_time
+        FROM bookings
+        WHERE resource_id = ? AND start_time < ? AND end_time > ?
+        """,
+        (resource_id, to_iso(range_end), to_iso(range_start)),
+    )
+
+    now_utc = _now_utc()
+    min_future_days = _normalize_min_future_days(resource["min_future_days"])
+    max_future_days = _normalize_max_future_days(resource["max_future_days"])
+
+    results: List[Dict[str, object]] = []
+    current_date = start_date
+    while current_date <= end_date:
+        day_start = datetime.combine(current_date, datetime.min.time(), tzinfo=timezone.utc)
+        day_end = day_start + timedelta(days=1)
+        days_ahead = (current_date - now_utc.date()).days
+        outside_future_window = (days_ahead >= 0 and days_ahead < min_future_days) or (
+            days_ahead >= max_future_days
+        )
+        is_past = day_end <= now_utc
+
+        if outside_future_window:
+            is_booked = False
+            is_available = False
+        else:
+            is_booked = _has_overlap_in_intervals(intervals, day_start, day_end)
+            is_available = not is_booked and not is_past
+
+        results.append(
+            {
+                "date": current_date.isoformat(),
+                "resource_id": resource_id,
+                "start_time": to_iso(day_start),
+                "end_time": to_iso(day_end),
+                "is_booked": bool(is_booked),
+                "is_past": bool(is_past),
+                "is_available": bool(is_available),
+            }
+        )
+        current_date += timedelta(days=1)
+
+    return results
 
 
 def create_booking(

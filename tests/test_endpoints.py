@@ -123,6 +123,61 @@ def test_slots_excludes_booked(client, db_conn, seeded_apartment, seeded_resourc
     assert booked_slot["is_booked"] is True
 
 
+def test_availability_range_returns_one_entry_per_day(
+    client, db_conn, seeded_apartment, seeded_resource, monkeypatch
+):
+    fixed_now = datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(booking, "_now_utc", lambda: fixed_now)
+    db_conn.execute(
+        "UPDATE resources SET booking_type = ?, min_future_days = ?, max_future_days = ? WHERE id = ?",
+        ("full-day", 0, 30, seeded_resource),
+    )
+    booked_start = datetime(2026, 3, 5, 0, 0, tzinfo=timezone.utc).isoformat()
+    booked_end = datetime(2026, 3, 6, 0, 0, tzinfo=timezone.utc).isoformat()
+    db_conn.execute(
+        """
+        INSERT INTO bookings (apartment_id, resource_id, start_time, end_time, is_billable)
+        VALUES (?, ?, ?, ?, 0)
+        """,
+        (seeded_apartment, seeded_resource, booked_start, booked_end),
+    )
+    db_conn.commit()
+
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+    response = client.get(
+        "/availability-range",
+        params={
+            "resource_id": seeded_resource,
+            "start_date": "2026-03-04",
+            "end_date": "2026-03-06",
+        },
+        cookies={"session": token},
+    )
+    assert response.status_code == 200
+    availability = {item["date"]: item for item in response.json()["availability"]}
+    assert list(availability.keys()) == ["2026-03-04", "2026-03-05", "2026-03-06"]
+    assert availability["2026-03-04"]["is_available"] is True
+    assert availability["2026-03-05"]["is_available"] is False
+    assert availability["2026-03-06"]["is_available"] is True
+
+
+def test_availability_range_rejects_invalid_date_range(
+    client, db_conn, seeded_apartment, seeded_resource
+):
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+    response = client.get(
+        "/availability-range",
+        params={
+            "resource_id": seeded_resource,
+            "start_date": "2026-03-06",
+            "end_date": "2026-03-05",
+        },
+        cookies={"session": token},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "invalid_date_range"
+
+
 def test_book_and_cancel(client, db_conn, seeded_apartment, seeded_resource):
     token = create_session(db_conn, seeded_apartment, is_admin=False)
     start = datetime(2026, 2, 28, 8, 0, tzinfo=timezone.utc).isoformat()

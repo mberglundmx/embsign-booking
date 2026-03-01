@@ -607,22 +607,39 @@ export function createBookingApp(options = {}) {
           }
           this.slotsByDate = Object.fromEntries(entries);
         } else {
-          const availabilityEntries = await Promise.all(
-            fullDayDays.map(async (date) => {
-              const slots = await api.getSlots(resourceId, date);
-              const normalized = normalizeSlots(slots);
-              const available =
-                normalized.length > 0 && !normalized[0].isBooked && !normalized[0].isPast;
-              return [date, available];
-            })
-          );
+          const availabilityByDate = Object.fromEntries(fullDayDays.map((date) => [date, false]));
+          if (typeof api.getAvailabilityRange === "function" && fullDayDays.length > 0) {
+            const availability = await api.getAvailabilityRange(
+              resourceId,
+              fullDayDays[0],
+              fullDayDays[fullDayDays.length - 1]
+            );
+            availability.forEach((item) => {
+              const date = item?.date;
+              if (!Object.prototype.hasOwnProperty.call(availabilityByDate, date)) return;
+              availabilityByDate[date] = Boolean(item?.is_available ?? item?.available);
+            });
+          } else {
+            const availabilityEntries = await Promise.all(
+              fullDayDays.map(async (date) => {
+                const slots = await api.getSlots(resourceId, date);
+                const normalized = normalizeSlots(slots);
+                const available =
+                  normalized.length > 0 && !normalized[0].isBooked && !normalized[0].isPast;
+                return [date, available];
+              })
+            );
+            availabilityEntries.forEach(([date, available]) => {
+              availabilityByDate[date] = Boolean(available);
+            });
+          }
           if (
             requestToken !== this.availabilityRequestToken ||
             resourceId !== this.selectedResourceId
           ) {
             return;
           }
-          this.fullDayAvailability = Object.fromEntries(availabilityEntries);
+          this.fullDayAvailability = availabilityByDate;
         }
       } finally {
         if (requestToken === this.availabilityRequestToken) {
