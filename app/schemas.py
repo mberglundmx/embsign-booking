@@ -45,6 +45,7 @@ class ResourceItem(BaseModel):
     slot_start_hour: int
     slot_end_hour: int
     max_future_days: int
+    min_future_days: int
     max_bookings: int
     price_cents: int
     is_billable: bool

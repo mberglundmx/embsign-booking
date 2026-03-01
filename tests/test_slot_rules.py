@@ -13,6 +13,7 @@ def _insert_resource(
     slot_start_hour: int = 6,
     slot_end_hour: int = 22,
     max_future_days: int = 30,
+    min_future_days: int = 0,
 ):
     cursor = db_conn.execute(
         """
@@ -23,11 +24,12 @@ def _insert_resource(
             slot_start_hour,
             slot_end_hour,
             max_future_days,
+            min_future_days,
             is_active,
             price_cents,
             is_billable
         )
-        VALUES (?, ?, ?, ?, ?, ?, 1, 0, 0)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, 0)
         """,
         (
             name,
@@ -36,6 +38,7 @@ def _insert_resource(
             slot_start_hour,
             slot_end_hour,
             max_future_days,
+            min_future_days,
         ),
     )
     db_conn.commit()
@@ -199,3 +202,36 @@ def test_slots_respect_max_future_days(client, db_conn, seeded_apartment, monkey
     )
     assert blocked_response.status_code == 200
     assert blocked_response.json()["slots"] == []
+
+
+def test_slots_respect_min_future_days(client, db_conn, seeded_apartment, monkeypatch):
+    fixed_now = datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(booking, "_now_utc", lambda: fixed_now)
+
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+    resource_id = _insert_resource(
+        db_conn,
+        name="Gästlägenhet",
+        booking_type="full-day",
+        max_future_days=90,
+        min_future_days=3,
+    )
+
+    blocked_date = (fixed_now + timedelta(days=2)).date().isoformat()
+    allowed_date = (fixed_now + timedelta(days=3)).date().isoformat()
+
+    blocked_response = client.get(
+        "/slots",
+        params={"resource_id": resource_id, "date": blocked_date},
+        cookies={"session": token},
+    )
+    assert blocked_response.status_code == 200
+    assert blocked_response.json()["slots"] == []
+
+    allowed_response = client.get(
+        "/slots",
+        params={"resource_id": resource_id, "date": allowed_date},
+        cookies={"session": token},
+    )
+    assert allowed_response.status_code == 200
+    assert len(allowed_response.json()["slots"]) == 1

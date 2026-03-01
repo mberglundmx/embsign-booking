@@ -6,6 +6,7 @@ const BASE_RESOURCE = {
   name: "Tvättstuga 1",
   booking_type: "time-slot",
   max_future_days: 14,
+  min_future_days: 0,
   price_cents: 0,
   is_billable: false
 };
@@ -663,6 +664,36 @@ describe("bookingApp", () => {
     expect(app.resources[1].bookingType).toBe("time-slot");
     expect(app.selectedResourceId).toBe(4);
     expect(app.days).toHaveLength(90);
+  });
+
+  it("loadResources respekterar min_future_days i synligt datumfönster", async () => {
+    const { app } = createApp({
+      apiOverrides: {
+        getResources: vi.fn().mockResolvedValue([
+          {
+            id: 7,
+            name: "Gästlägenhet",
+            booking_type: "full-day",
+            max_future_days: 10,
+            min_future_days: 3,
+            price_cents: 0,
+            is_billable: false
+          }
+        ])
+      }
+    });
+    const expectedFirstDay = (() => {
+      const first = new Date();
+      first.setDate(first.getDate() + 3);
+      return `${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, "0")}-${String(
+        first.getDate()
+      ).padStart(2, "0")}`;
+    })();
+
+    await app.loadResources();
+
+    expect(app.days).toHaveLength(7);
+    expect(app.days[0]).toBe(expectedFirstDay);
   });
 
   it("showError/clearError hanterar timers korrekt", () => {
