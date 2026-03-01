@@ -141,21 +141,26 @@
           ></div>
 
           <div class="card card-compact">
-            <div class="space-y-3">
-              <p class="text-sm text-slate-600">
-                För att hantera bokningar från mobiltelefon eller dator behöver du sätta ett lösenord - klicka på knappen nedan för att uppdatera ditt befintliga lösenord eller sätta ett nytt. Bokningssidan nås sedan på
-                <span class="font-semibold text-slate-800" x-text="publicBookingDisplay"></span>.
-              </p>
-              <p class="text-sm text-slate-600">
-                Ditt användar-ID för inloggning är
-                <span class="font-semibold text-slate-800" x-text="userId"></span>.
-              </p>
+            <template x-if="isPosMode">
+              <div class="space-y-3">
+                <p class="card-title text-base">Hantera bokningar från mobiltelefon eller dator</p>
+                <p class="text-sm text-slate-600">
+                  För att hantera bokningar från mobiltelefon eller dator behöver du sätta ett lösenord - klicka på knappen nedan för att uppdatera ditt befintliga lösenord eller sätta ett nytt. Bokningssidan nås sedan på
+                  <span class="font-semibold text-slate-800" x-text="publicBookingDisplay"></span>.
+                </p>
+                <p class="text-sm text-slate-600">
+                  Ditt användar-ID för inloggning är
+                  <span class="font-semibold text-slate-800" x-text="userId"></span>.
+                </p>
+              </div>
+            </template>
+            <div :class="isPosMode ? 'mt-4' : ''">
               <button
-                class="btn btn-secondary"
+                class="btn btn-primary"
                 @click="togglePasswordForm"
                 data-testid="password-change-toggle"
               >
-                Ändra mobil-lösenord
+                Ändra lösenord
               </button>
             </div>
           </div>
