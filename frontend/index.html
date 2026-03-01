@@ -11,36 +11,6 @@
     x-data="bookingApp()"
     x-init="init()"
   >
-    <header class="border-b border-slate-200 bg-white">
-      <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <div class="flex items-center gap-3">
-          <div class="h-10 w-10 rounded-2xl bg-brand-600"></div>
-          <div>
-            <p class="text-lg font-semibold">BRF Bokning</p>
-            <p class="text-sm text-slate-500">Tvättstuga och resurser</p>
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <button
-            class="btn btn-secondary"
-            :class="isPosMode ? 'border-brand-600 text-brand-700' : ''"
-            @click="setMode('pos')"
-            data-testid="mode-pos"
-          >
-            POS-läge
-          </button>
-          <button
-            class="btn btn-secondary"
-            :class="!isPosMode ? 'border-brand-600 text-brand-700' : ''"
-            @click="setMode('desktop')"
-            data-testid="mode-desktop"
-          >
-            Desktop/Mobil
-          </button>
-        </div>
-      </div>
-    </header>
-
     <main class="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-8">
       <section
         class="card flex flex-col gap-6"
@@ -106,38 +76,105 @@
       </section>
 
       <section class="flex flex-col gap-6" x-show="isAuthenticated" x-transition>
-        <div class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-6 py-4">
+        <div
+          class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-6 py-4"
+        >
           <p class="text-sm text-slate-600">Inloggad som <span class="font-semibold" x-text="userId"></span></p>
-          <button class="btn btn-secondary" @click="logout" data-testid="logout">
-            Logga ut
-          </button>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              class="btn btn-secondary"
+              @click="togglePasswordForm"
+              data-testid="password-change-toggle"
+            >
+              Ändra mobil-lösenord
+            </button>
+            <button class="btn btn-secondary" @click="logout" data-testid="logout">
+              Logga ut
+            </button>
+          </div>
         </div>
 
-        <div class="card">
-            <p class="card-title">Boka objekt</p>
-            <p class="text-sm text-slate-500">Välj ett objekt för att se tillgängliga tider.</p>
-            <div class="mt-4 grid gap-3 md:grid-cols-3">
-              <template x-for="resource in resources" :key="resource.id">
-                <button
-                  class="rounded-2xl border px-4 py-4 text-left transition"
-                  :class="resource.id === selectedResourceId ? 'border-brand-600 bg-brand-50' : 'border-slate-200 bg-white hover:border-brand-300'"
-                  @click="selectResource(resource.id)"
-                  data-testid="resource-card"
-                >
-                  <p class="text-sm font-semibold" x-text="resource.name"></p>
-                  <p class="text-xs text-slate-500" x-text="resource.bookingType === 'full-day' ? 'Heldag' : 'Timpass'"></p>
-                  <p class="text-xs text-slate-500" x-show="resource.price > 0">
-                    Debitering: <span x-text="resource.price"></span> kr
-                  </p>
-                </button>
-              </template>
+        <div
+          class="rounded-2xl border border-slate-200 bg-emerald-50 px-6 py-3 text-sm font-medium text-emerald-800"
+          x-show="passwordUpdateMessage"
+          x-text="passwordUpdateMessage"
+          data-testid="password-change-success"
+        ></div>
+
+        <div class="card card-compact" x-show="passwordFormOpen" x-transition data-testid="password-change-form">
+          <p class="card-title text-base">Ändra lösenord för mobil inloggning</p>
+          <form class="mt-3 grid gap-3 md:grid-cols-2" @submit.prevent="updateMobilePassword">
+            <label class="flex flex-col gap-2">
+              <span class="text-sm font-medium">Nytt lösenord</span>
+              <input
+                class="input py-2"
+                type="password"
+                x-model="newPasswordInput"
+                required
+                minlength="4"
+                data-testid="password-change-new"
+              />
+            </label>
+            <label class="flex flex-col gap-2">
+              <span class="text-sm font-medium">Bekräfta lösenord</span>
+              <input
+                class="input py-2"
+                type="password"
+                x-model="confirmPasswordInput"
+                required
+                minlength="4"
+                data-testid="password-change-confirm"
+              />
+            </label>
+            <div class="md:col-span-2 flex flex-wrap gap-2">
+              <button
+                class="btn btn-primary"
+                type="submit"
+                :disabled="loading"
+                data-testid="password-change-submit"
+              >
+                Spara lösenord
+              </button>
+              <button
+                class="btn btn-secondary"
+                type="button"
+                @click="closePasswordForm"
+                data-testid="password-change-cancel"
+              >
+                Avbryt
+              </button>
             </div>
+          </form>
+        </div>
+
+        <div class="card card-compact" x-show="shouldShowResourcePicker" data-testid="resource-picker">
+          <p class="card-title text-base">Bokningsobjekt</p>
+          <p class="text-xs text-slate-500">Välj objekt för att uppdatera kalendern.</p>
+          <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <template x-for="resource in resources" :key="resource.id">
+              <button
+                class="rounded-xl border px-3 py-2 text-left text-sm transition"
+                :class="resource.id === selectedResourceId ? 'border-brand-600 bg-brand-50' : 'border-slate-200 bg-white hover:border-brand-300'"
+                @click="selectResource(resource.id)"
+                data-testid="resource-card"
+              >
+                <p class="font-semibold" x-text="resource.name"></p>
+                <p class="text-xs text-slate-500" x-text="resource.bookingType === 'full-day' ? 'Heldag' : 'Timpass'"></p>
+                <p class="text-xs text-slate-500" x-show="resource.price > 0">
+                  Debitering: <span x-text="resource.price"></span> kr
+                </p>
+              </button>
+            </template>
           </div>
+        </div>
 
           <div class="card">
-            <div class="flex items-center justify-between">
+            <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <p class="card-title">Tillgängliga tider</p>
-              <p class="text-sm text-slate-500" x-text="selectedResource?.name"></p>
+              <p class="text-sm text-slate-500">
+                Bokningsobjekt:
+                <span class="font-semibold" x-text="selectedResource?.name ?? 'Ej valt'"></span>
+              </p>
             </div>
 
             <template x-if="availabilityLoading">

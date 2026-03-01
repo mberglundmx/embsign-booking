@@ -106,6 +106,17 @@ export function loginWithPassword(apartmentId, password) {
   return { apartment_id: apartmentId, booking_url: "/booking" };
 }
 
+export function updateMobilePassword(newPassword) {
+  const user = users.find((item) => item.apartment_id === activeApartmentId);
+  if (!user) {
+    const error = new Error("unauthorized");
+    error.status = 401;
+    throw error;
+  }
+  user.password = newPassword;
+  return { status: "ok" };
+}
+
 export function getSlots(resourceId, date) {
   const resource = resources.find((item) => item.id === Number(resourceId));
   if (!resource || !date) return [];

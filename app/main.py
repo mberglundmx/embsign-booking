@@ -10,6 +10,7 @@ from .auth import (
     create_session,
     ensure_apartment,
     get_session,
+    hash_password,
     load_rfid_cache,
     lookup_rfid,
     verify_password,
@@ -31,6 +32,7 @@ from .schemas import (
     CancelRequest,
     LoginResponse,
     MobileLoginRequest,
+    MobilePasswordUpdateRequest,
     RFIDLoginRequest,
     ResourcesResponse,
 )
@@ -112,6 +114,25 @@ def mobile_login(payload: MobileLoginRequest, response: Response, conn=Depends(g
     token = create_session(conn, payload.apartment_id, is_admin=False)
     response.set_cookie("session", token, httponly=True, samesite="none", secure=True)
     return LoginResponse(booking_url="/booking", apartment_id=payload.apartment_id)
+
+
+@app.post("/mobile-password")
+def update_mobile_password(
+    payload: MobilePasswordUpdateRequest,
+    session=Depends(require_session),
+    conn=Depends(get_db),
+):
+    new_password = payload.new_password.strip()
+    if len(new_password) < 4:
+        raise HTTPException(status_code=400, detail="password_too_short")
+    result = conn.execute(
+        "UPDATE apartments SET password_hash = ? WHERE id = ?",
+        (hash_password(new_password), session["apartment_id"]),
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="apartment_not_found")
+    conn.commit()
+    return {"status": "ok"}
 
 
 @app.get("/slots")
