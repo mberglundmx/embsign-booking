@@ -470,6 +470,15 @@ export function createBookingApp(options = {}) {
       this.confirmPasswordInput = "";
     },
 
+    handleSessionExpired(error, message = "Sessionen har gått ut. Logga in igen.") {
+      if (error?.status !== 401 || !this.isAuthenticated) {
+        return false;
+      }
+      this.logout();
+      this.showError(message);
+      return true;
+    },
+
     async updateMobilePassword() {
       const newPassword = this.newPasswordInput.trim();
       const confirmPassword = this.confirmPasswordInput.trim();
@@ -495,11 +504,10 @@ export function createBookingApp(options = {}) {
         this.passwordUpdateMessage = "Lösenordet för mobil åtkomst är uppdaterat.";
         this.closePasswordForm();
       } catch (error) {
-        if (error?.status === 401) {
-          this.showError("Sessionen har gått ut. Logga in igen.");
-        } else {
-          this.showError("Kunde inte uppdatera lösenordet.");
+        if (this.handleSessionExpired(error)) {
+          return;
         }
+        this.showError("Kunde inte uppdatera lösenordet.");
       } finally {
         this.loading = false;
       }
@@ -514,8 +522,12 @@ export function createBookingApp(options = {}) {
       this.passwordFormOpen = false;
       this.newPasswordInput = "";
       this.confirmPasswordInput = "";
+      this.rfidInput = "";
+      this.rfidBuffer = "";
       this.passwordUpdateMessage = "";
       this.bookingUrlPath = "/booking";
+      this.closeConfirm();
+      this.clearError();
       this.resources = [];
       this.nextAvailabilityRequestToken += 1;
       this.nextAvailableByResourceId = {};
@@ -526,10 +538,17 @@ export function createBookingApp(options = {}) {
 
     async loadBookings() {
       if (!this.userId) return;
-      const api = await getApiClient();
-      const bookings =
-        api.getBookings.length > 0 ? await api.getBookings(this.userId) : await api.getBookings();
-      this.bookings = normalizeBookings(bookings);
+      try {
+        const api = await getApiClient();
+        const bookings =
+          api.getBookings.length > 0 ? await api.getBookings(this.userId) : await api.getBookings();
+        this.bookings = normalizeBookings(bookings);
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        throw error;
+      }
     },
 
     isDayBooked(dateString) {
@@ -617,7 +636,10 @@ export function createBookingApp(options = {}) {
         await this.loadBookings();
         await this.refreshSlots();
         this.closeConfirm();
-      } catch {
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
         this.showError("Kunde inte slutföra åtgärden.");
       } finally {
         this.loading = false;
@@ -739,6 +761,11 @@ export function createBookingApp(options = {}) {
           }
           this.fullDayAvailability = availabilityByDate;
         }
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        this.showError("Kunde inte ladda tillgänglighet.");
       } finally {
         if (requestToken === this.availabilityRequestToken) {
           this.availabilityLoading = false;
@@ -831,17 +858,24 @@ export function createBookingApp(options = {}) {
     },
 
     async loadResources() {
-      const api = await getApiClient();
-      const resources = await api.getResources();
-      this.resources = normalizeResources(resources);
-      this.nextAvailableByResourceId = Object.fromEntries(
-        this.resources.map((resource) => [resource.id, NEXT_AVAILABILITY_LOADING])
-      );
-      this.selectedResourceId = this.resources[0]?.id ?? null;
-      this.days = getUpcomingDays(this.getVisibleDayCount(), this.getMinAdvanceDays());
-      this.timeSlotStartIndex = 0;
-      this.resetAvailabilityData();
-      await this.loadNextAvailability();
+      try {
+        const api = await getApiClient();
+        const resources = await api.getResources();
+        this.resources = normalizeResources(resources);
+        this.nextAvailableByResourceId = Object.fromEntries(
+          this.resources.map((resource) => [resource.id, NEXT_AVAILABILITY_LOADING])
+        );
+        this.selectedResourceId = this.resources[0]?.id ?? null;
+        this.days = getUpcomingDays(this.getVisibleDayCount(), this.getMinAdvanceDays());
+        this.timeSlotStartIndex = 0;
+        this.resetAvailabilityData();
+        await this.loadNextAvailability();
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        throw error;
+      }
     },
 
     showError(message, timeoutMs = 3500) {

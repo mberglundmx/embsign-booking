@@ -418,12 +418,16 @@ describe("bookingApp", () => {
     expect(app.confirmPasswordInput).toBe("");
   });
 
-  it("updateMobilePassword hanterar 401 och övriga fel", async () => {
+  it("updateMobilePassword loggar ut vid 401 i aktiv session", async () => {
     const unauthorized = createApp({
       apiOverrides: {
         updateMobilePassword: vi.fn().mockRejectedValue({ status: 401 })
       }
     });
+    unauthorized.app.isAuthenticated = true;
+    unauthorized.app.userId = "1-1201";
+    unauthorized.app.resources = [{ id: 1 }];
+    unauthorized.app.selectedResourceId = 1;
     unauthorized.app.showError = vi.fn();
     unauthorized.app.newPasswordInput = "abcd";
     unauthorized.app.confirmPasswordInput = "abcd";
@@ -431,7 +435,13 @@ describe("bookingApp", () => {
     expect(unauthorized.app.showError).toHaveBeenCalledWith(
       "Sessionen har gått ut. Logga in igen."
     );
+    expect(unauthorized.app.isAuthenticated).toBe(false);
+    expect(unauthorized.app.userId).toBeNull();
+    expect(unauthorized.app.resources).toEqual([]);
+    expect(unauthorized.app.selectedResourceId).toBeNull();
+  });
 
+  it("updateMobilePassword hanterar övriga fel", async () => {
     const genericError = createApp({
       apiOverrides: {
         updateMobilePassword: vi.fn().mockRejectedValue(new Error("fail"))
@@ -460,6 +470,10 @@ describe("bookingApp", () => {
     app.nextAvailableByResourceId = { 1: "måndag 3 mars 08:00-09:00" };
     app.selectedResourceId = 1;
     app.bookings = [{ id: 1 }];
+    app.rfidInput = "UID";
+    app.rfidBuffer = "123";
+    app.errorMessage = "tidigare fel";
+    app.confirm.open = true;
 
     app.logout();
 
@@ -475,6 +489,10 @@ describe("bookingApp", () => {
     expect(app.nextAvailableByResourceId).toEqual({});
     expect(app.selectedResourceId).toBeNull();
     expect(app.bookings).toEqual([]);
+    expect(app.rfidInput).toBe("");
+    expect(app.rfidBuffer).toBe("");
+    expect(app.errorMessage).toBe("");
+    expect(app.confirm.open).toBe(false);
   });
 
   it("loadBookings hanterar både parametriserat och parameterlöst API", async () => {
@@ -525,6 +543,21 @@ describe("bookingApp", () => {
     const missingUser = createApp();
     await missingUser.app.loadBookings();
     expect(missingUser.api.getBookings).not.toHaveBeenCalled();
+
+    const sessionExpired = createApp({
+      apiOverrides: {
+        getBookings: vi.fn().mockRejectedValue({ status: 401 })
+      }
+    });
+    sessionExpired.app.isAuthenticated = true;
+    sessionExpired.app.userId = "1-1201";
+    sessionExpired.app.showError = vi.fn();
+    await sessionExpired.app.loadBookings();
+    expect(sessionExpired.app.isAuthenticated).toBe(false);
+    expect(sessionExpired.app.userId).toBeNull();
+    expect(sessionExpired.app.showError).toHaveBeenCalledWith(
+      "Sessionen har gått ut. Logga in igen."
+    );
   });
 
   it("open/close confirm och confirmAction för heldag, tidspass och avbokning", async () => {
@@ -630,6 +663,27 @@ describe("bookingApp", () => {
     };
     await apiError.app.confirmAction();
     expect(apiError.app.showError).toHaveBeenCalledWith("Kunde inte slutföra åtgärden.");
+
+    const unauthorized = createApp({
+      apiOverrides: {
+        cancelBooking: vi.fn().mockRejectedValue({ status: 401 })
+      }
+    });
+    unauthorized.app.isAuthenticated = true;
+    unauthorized.app.userId = "1-1201";
+    unauthorized.app.showError = vi.fn();
+    unauthorized.app.confirm = {
+      open: true,
+      action: "cancel",
+      payload: { id: 1 },
+      price: 0
+    };
+    await unauthorized.app.confirmAction();
+    expect(unauthorized.app.isAuthenticated).toBe(false);
+    expect(unauthorized.app.userId).toBeNull();
+    expect(unauthorized.app.showError).toHaveBeenCalledWith(
+      "Sessionen har gått ut. Logga in igen."
+    );
   });
 
   it("kalender- och slot-hjälpfunktioner ger förväntat resultat", () => {
@@ -806,6 +860,44 @@ describe("bookingApp", () => {
 
     expect(app.days).toHaveLength(7);
     expect(app.days[0]).toBe(expectedFirstDay);
+  });
+
+  it("loadResources loggar ut vid 401 i aktiv session", async () => {
+    const sessionExpired = createApp({
+      apiOverrides: {
+        getResources: vi.fn().mockRejectedValue({ status: 401 })
+      }
+    });
+    sessionExpired.app.isAuthenticated = true;
+    sessionExpired.app.userId = "1-1201";
+    sessionExpired.app.showError = vi.fn();
+    await sessionExpired.app.loadResources();
+    expect(sessionExpired.app.isAuthenticated).toBe(false);
+    expect(sessionExpired.app.userId).toBeNull();
+    expect(sessionExpired.app.showError).toHaveBeenCalledWith(
+      "Sessionen har gått ut. Logga in igen."
+    );
+  });
+
+  it("refreshSlots loggar ut vid 401 i aktiv session", async () => {
+    const sessionExpired = createApp({
+      apiOverrides: {
+        getSlots: vi.fn().mockRejectedValue({ status: 401 })
+      }
+    });
+    sessionExpired.app.isAuthenticated = true;
+    sessionExpired.app.userId = "1-1201";
+    sessionExpired.app.resources = [{ id: 1, bookingType: "time-slot", maxAdvanceDays: 14 }];
+    sessionExpired.app.selectedResourceId = 1;
+    sessionExpired.app.days = ["2026-03-06", "2026-03-07", "2026-03-08", "2026-03-09"];
+    sessionExpired.app.showError = vi.fn();
+    await sessionExpired.app.refreshSlots();
+    expect(sessionExpired.app.isAuthenticated).toBe(false);
+    expect(sessionExpired.app.userId).toBeNull();
+    expect(sessionExpired.app.availabilityLoading).toBe(false);
+    expect(sessionExpired.app.showError).toHaveBeenCalledWith(
+      "Sessionen har gått ut. Logga in igen."
+    );
   });
 
   it("showError/clearError hanterar timers korrekt", () => {
