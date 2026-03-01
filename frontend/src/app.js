@@ -12,6 +12,7 @@ const TIME_SLOT_DAYS_VISIBLE = 4;
 const WEEKDAY_LABELS = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
 const NEXT_AVAILABILITY_LOADING = "__loading__";
 const NEXT_AVAILABILITY_NONE = "__none__";
+const CONFIGURED_PUBLIC_HOSTNAME = (import.meta.env.VITE_PUBLIC_HOSTNAME ?? "").trim();
 const DEMO_RFID_UID = import.meta.env.VITE_RFID_UID || "UID123";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 
@@ -158,6 +159,7 @@ export function createBookingApp(options = {}) {
     nextAvailableByResourceId: {},
     nextAvailabilityRequestToken: 0,
     bookings: [],
+    bookingUrlPath: "/booking",
     days: [],
     selectedResourceId: null,
     timeSlotStartIndex: 0,
@@ -289,6 +291,22 @@ export function createBookingApp(options = {}) {
       return label;
     },
 
+    get publicBookingHostname() {
+      if (CONFIGURED_PUBLIC_HOSTNAME) {
+        return CONFIGURED_PUBLIC_HOSTNAME;
+      }
+      return runtimeWindow.location?.host ?? "";
+    },
+
+    get publicBookingDisplay() {
+      const hostname = this.publicBookingHostname;
+      const path = this.bookingUrlPath || "/booking";
+      if (!hostname) {
+        return path;
+      }
+      return `${hostname}${path}`;
+    },
+
     bindRfidListener() {
       if (this.rfidListenerBound) return;
       runtimeWindow.addEventListener("keydown", (event) => {
@@ -365,6 +383,7 @@ export function createBookingApp(options = {}) {
         const result = await api.loginWithRfid(uid);
         this.isAuthenticated = true;
         this.authenticatedStep = "setup";
+        this.bookingUrlPath = result.booking_url ?? "/booking";
         this.userId = result.apartment_id ?? result.userId ?? null;
         this.rfidInput = "";
         this.passwordFormOpen = false;
@@ -393,6 +412,7 @@ export function createBookingApp(options = {}) {
         );
         this.isAuthenticated = true;
         this.authenticatedStep = "setup";
+        this.bookingUrlPath = result.booking_url ?? "/booking";
         this.userId = result.apartment_id ?? result.userId ?? null;
         this.passwordFormOpen = false;
         this.passwordUpdateMessage = "";
@@ -471,6 +491,7 @@ export function createBookingApp(options = {}) {
       this.newPasswordInput = "";
       this.confirmPasswordInput = "";
       this.passwordUpdateMessage = "";
+      this.bookingUrlPath = "/booking";
       this.resources = [];
       this.nextAvailabilityRequestToken += 1;
       this.nextAvailableByResourceId = {};

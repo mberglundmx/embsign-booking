@@ -141,11 +141,15 @@
           ></div>
 
           <div class="card card-compact">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p class="card-title text-base">Ändra mobil-lösenord</p>
-                <p class="text-xs text-slate-500">Valfritt men rekommenderat för mobil inloggning.</p>
-              </div>
+            <div class="space-y-3">
+              <p class="text-sm text-slate-600">
+                För att hantera bokningar från mobiltelefon eller dator behöver du sätta ett lösenord - klicka på knappen nedan för att uppdatera ditt befintliga lösenord eller sätta ett nytt. Bokningssidan nås sedan på
+                <span class="font-semibold text-slate-800" x-text="publicBookingDisplay"></span>.
+              </p>
+              <p class="text-sm text-slate-600">
+                Ditt användar-ID för inloggning är
+                <span class="font-semibold text-slate-800" x-text="userId"></span>.
+              </p>
               <button
                 class="btn btn-secondary"
                 @click="togglePasswordForm"

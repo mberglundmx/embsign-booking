@@ -326,6 +326,33 @@ describe("bookingApp", () => {
     );
   });
 
+  it("använder booking_url från login för publik bokningsadress", async () => {
+    const windowObject = createWindowMock();
+    windowObject.location = { host: "bokning.example.se" };
+    const { app } = createApp({
+      windowObject,
+      apiOverrides: {
+        loginWithPassword: vi.fn().mockResolvedValue({
+          apartment_id: "1-1201",
+          booking_url: "/mobil-boka"
+        })
+      }
+    });
+    app.userIdInput = "1-1201";
+    app.passwordInput = "1234";
+    app.loadResources = vi.fn().mockResolvedValue();
+    app.loadBookings = vi.fn().mockResolvedValue();
+    app.refreshSlots = vi.fn().mockResolvedValue();
+
+    await app.loginPassword();
+
+    expect(app.bookingUrlPath).toBe("/mobil-boka");
+    expect(app.publicBookingDisplay).toBe("bokning.example.se/mobil-boka");
+
+    app.logout();
+    expect(app.bookingUrlPath).toBe("/booking");
+  });
+
   it("toggle/close password form och validering för nytt lösenord", async () => {
     const { app, api } = createApp();
     app.showError = vi.fn();
