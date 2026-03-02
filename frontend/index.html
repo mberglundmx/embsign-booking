@@ -110,7 +110,8 @@
 
       <section class="flex flex-col gap-4" x-show="isAuthenticated" x-transition>
         <div
-          class="grid grid-cols-3 items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:px-6"
+          class="grid grid-cols-3 items-center gap-3 rounded-2xl border px-4 py-3 sm:px-6"
+          :class="isAdminMode ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'"
           data-testid="step-header"
         >
           <div class="flex items-center justify-start">
@@ -123,8 +124,13 @@
               Tillbaka
             </button>
           </div>
-          <p class="text-center text-sm text-slate-600">
-            Inloggad som <span class="font-semibold" x-text="userId"></span>
+          <p class="text-center text-sm" :class="isAdminMode ? 'text-amber-800' : 'text-slate-600'">
+            <template x-if="isAdminMode">
+              <span>Administratör inloggad som <span class="font-semibold" x-text="userId"></span></span>
+            </template>
+            <template x-if="!isAdminMode">
+              <span>Inloggad som <span class="font-semibold" x-text="userId"></span></span>
+            </template>
           </p>
           <div class="flex items-center justify-end">
             <button class="btn btn-secondary px-4 py-2 text-sm" @click="logout" data-testid="logout">
@@ -161,6 +167,23 @@
                 </button>
               </template>
             </div>
+          </div>
+
+          <div class="card card-compact" x-show="isAdminMode" data-testid="admin-booking-target">
+            <p class="card-title text-base text-amber-900">Administratörsverktyg</p>
+            <p class="text-xs text-amber-700">
+              Ange användar-ID för vem bokningen ska skapas för.
+            </p>
+            <label class="mt-2 flex flex-col gap-2">
+              <span class="text-sm font-medium text-amber-900">Boka åt användare</span>
+              <input
+                class="input border-amber-300 bg-amber-50/50 focus:bg-white"
+                type="text"
+                placeholder="t.ex. 1-1201"
+                x-model="adminBookingApartmentId"
+                data-testid="admin-target-userid"
+              />
+            </label>
           </div>
 
           <div
@@ -244,6 +267,15 @@
                           >
                             <span x-text="day.booked ? 'Upptagen' : 'Boka'"></span>
                           </button>
+                          <button
+                            class="btn btn-secondary mt-2 w-full"
+                            x-show="isAdminMode"
+                            :disabled="day.booked"
+                            @click="openConfirmBlock({ type: 'block-full-day', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day.date })"
+                            data-testid="block-day"
+                          >
+                            Blockera
+                          </button>
                         </div>
                       </template>
                     </div>
@@ -298,19 +330,30 @@
                       </p>
                     </div>
                     <template x-for="day in timeSlotDays" :key="`${day}-${slot.id}`">
-                      <button
-                        class="w-full rounded-xl border px-3 py-4 text-sm font-semibold transition"
-                        :class="isTimeSlotPast(day, slot.id)
-                          ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-500'
-                          : isTimeSlotBooked(day, slot.id)
-                            ? 'border-rose-200 bg-rose-50 text-rose-700'
-                            : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
-                        :disabled="isTimeSlotDisabled(day, slot.id)"
-                        @click="openConfirmBooking({ type: 'time-slot', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day, slotId: slot.id, slotLabel: slot.label })"
-                        data-testid="book-slot"
-                      >
-                        <span x-text="isTimeSlotPast(day, slot.id) ? 'Passerad' : isTimeSlotBooked(day, slot.id) ? 'Upptagen' : 'Ledig'"></span>
-                      </button>
+                      <div class="flex flex-col gap-1">
+                        <button
+                          class="w-full rounded-xl border px-3 py-4 text-sm font-semibold transition"
+                          :class="isTimeSlotPast(day, slot.id)
+                            ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-500'
+                            : isTimeSlotBooked(day, slot.id)
+                              ? 'border-rose-200 bg-rose-50 text-rose-700'
+                              : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
+                          :disabled="isTimeSlotDisabled(day, slot.id)"
+                          @click="openConfirmBooking({ type: 'time-slot', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day, slotId: slot.id, slotLabel: slot.label })"
+                          data-testid="book-slot"
+                        >
+                          <span x-text="isTimeSlotPast(day, slot.id) ? 'Passerad' : isTimeSlotBooked(day, slot.id) ? 'Upptagen' : 'Ledig'"></span>
+                        </button>
+                        <button
+                          class="btn btn-secondary w-full px-2 py-2 text-xs"
+                          x-show="isAdminMode"
+                          :disabled="isTimeSlotDisabled(day, slot.id)"
+                          @click="openConfirmBlock({ type: 'block-time-slot', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day, slotId: slot.id, slotLabel: slot.label })"
+                          data-testid="block-slot"
+                        >
+                          Blockera
+                        </button>
+                      </div>
                     </template>
                     <div></div>
                   </div>
@@ -320,9 +363,12 @@
           </div>
 
           <details class="card" data-testid="booking-list">
-            <summary class="cursor-pointer text-lg font-semibold text-slate-900">Mina bokningar</summary>
+            <summary
+              class="cursor-pointer text-lg font-semibold text-slate-900"
+              x-text="isAdminMode ? 'Bokningar och blockeringar' : 'Mina bokningar'"
+            ></summary>
             <div class="mt-4 space-y-3" x-show="bookings.length">
-              <template x-for="booking in bookings" :key="booking.id">
+              <template x-for="booking in bookings" :key="`${booking.entryType}-${booking.id}`">
                 <div
                   class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3"
                 >
@@ -334,19 +380,25 @@
                         <span> • <span x-text="booking.slotLabel"></span></span>
                       </template>
                     </p>
+                    <p class="text-xs text-slate-500" x-show="isAdminMode && booking.apartmentId">
+                      För användare: <span class="font-semibold" x-text="booking.apartmentId"></span>
+                    </p>
+                    <p class="text-xs text-amber-700" x-show="booking.entryType === 'block' && booking.blockedReason">
+                      Blockering: <span x-text="booking.blockedReason"></span>
+                    </p>
                   </div>
                   <button
                     class="btn btn-danger"
                     @click="openConfirmCancel(booking)"
                     data-testid="cancel-booking"
                   >
-                    Avboka
+                    <span x-text="booking.entryType === 'block' ? 'Ta bort blockering' : 'Avboka'"></span>
                   </button>
                 </div>
               </template>
             </div>
             <p class="mt-4 text-sm text-slate-500" x-show="!bookings.length">
-              Inga bokningar ännu.
+              <span x-text="isAdminMode ? 'Inga bokningar eller blockeringar ännu.' : 'Inga bokningar ännu.'"></span>
             </p>
           </details>
         </div>

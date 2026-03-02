@@ -122,7 +122,12 @@ function normalizeResources(resources) {
 function normalizeBookings(bookings) {
   return bookings.map((booking) => {
     if (booking.resourceName) {
-      return booking;
+      return {
+        ...booking,
+        entryType: booking.entryType ?? booking.entry_type ?? "booking",
+        apartmentId: booking.apartmentId ?? booking.apartment_id ?? null,
+        blockedReason: booking.blockedReason ?? booking.blocked_reason ?? ""
+      };
     }
     const date = booking.start_time.split("T")[0];
     const bookingType = booking.booking_type ?? "time-slot";
@@ -135,7 +140,10 @@ function normalizeBookings(bookings) {
       date,
       slotLabel,
       bookingType,
-      price: typeof booking.price_cents === "number" ? Math.round(booking.price_cents / 100) : 0
+      price: typeof booking.price_cents === "number" ? Math.round(booking.price_cents / 100) : 0,
+      apartmentId: booking.apartment_id ?? null,
+      entryType: booking.entry_type ?? "booking",
+      blockedReason: booking.blocked_reason ?? ""
     };
   });
 }
@@ -175,8 +183,10 @@ export function createBookingApp(options = {}) {
     isAuthenticated: false,
     authenticatedStep: "setup",
     userId: null,
+    isAdmin: false,
     userIdInput: "",
     passwordInput: "",
+    adminBookingApartmentId: "",
     rfidInput: "",
     rfidBuffer: "",
     rfidListenerBound: false,
@@ -252,6 +262,10 @@ export function createBookingApp(options = {}) {
 
     get canGoBackStep() {
       return this.isAuthenticated && this.isScheduleStep;
+    },
+
+    get isAdminMode() {
+      return this.isAuthenticated && this.isAdmin;
     },
 
     get timeSlotDays() {
@@ -409,6 +423,8 @@ export function createBookingApp(options = {}) {
         this.authenticatedStep = "setup";
         this.bookingUrlPath = result.booking_url ?? "/booking";
         this.userId = result.apartment_id ?? result.userId ?? null;
+        this.isAdmin = Boolean(result.is_admin);
+        this.adminBookingApartmentId = "";
         this.rfidInput = "";
         this.passwordFormOpen = false;
         this.passwordUpdateMessage = "";
@@ -438,6 +454,8 @@ export function createBookingApp(options = {}) {
         this.authenticatedStep = "setup";
         this.bookingUrlPath = result.booking_url ?? "/booking";
         this.userId = result.apartment_id ?? result.userId ?? null;
+        this.isAdmin = Boolean(result.is_admin);
+        this.adminBookingApartmentId = "";
         this.passwordFormOpen = false;
         this.passwordUpdateMessage = "";
         await this.loadResources();
@@ -517,8 +535,10 @@ export function createBookingApp(options = {}) {
       this.isAuthenticated = false;
       this.authenticatedStep = "setup";
       this.userId = null;
+      this.isAdmin = false;
       this.userIdInput = "";
       this.passwordInput = "";
+      this.adminBookingApartmentId = "";
       this.passwordFormOpen = false;
       this.newPasswordInput = "";
       this.confirmPasswordInput = "";
@@ -540,8 +560,11 @@ export function createBookingApp(options = {}) {
       if (!this.userId) return;
       try {
         const api = await getApiClient();
-        const bookings =
-          api.getBookings.length > 0 ? await api.getBookings(this.userId) : await api.getBookings();
+        const bookings = this.isAdmin && typeof api.getAdminCalendar === "function"
+          ? await api.getAdminCalendar()
+          : api.getBookings.length > 0
+            ? await api.getBookings(this.userId)
+            : await api.getBookings();
         this.bookings = normalizeBookings(bookings);
       } catch (error) {
         if (this.handleSessionExpired(error)) {
@@ -571,27 +594,55 @@ export function createBookingApp(options = {}) {
       const resource = this.resources.find((item) => item.id === payload.resourceId);
       const price = resource?.price ?? 0;
       const isFullDay = payload.type === "full-day";
+      const targetApartmentId = this.getBookingApartmentId();
+      const targetLabel = this.isAdmin ? ` åt ${targetApartmentId || "vald användare"}` : "";
       this.confirm = {
         open: true,
         action: payload.type,
         payload,
         title: "Bekräfta bokning",
         message: isFullDay
-          ? `Boka ${payload.resourceName} den ${this.formatDayLong(payload.date)}?`
-          : `Boka ${payload.resourceName} den ${this.formatDayLong(payload.date)} (${payload.slotLabel})?`,
+          ? `Boka ${payload.resourceName}${targetLabel} den ${this.formatDayLong(payload.date)}?`
+          : `Boka ${payload.resourceName}${targetLabel} den ${this.formatDayLong(payload.date)} (${payload.slotLabel})?`,
         price
       };
     },
 
     openConfirmCancel(booking) {
+      const isBlock = booking.entryType === "block";
       this.confirm = {
         open: true,
         action: "cancel",
         payload: booking,
-        title: "Avboka",
-        message: `Avboka ${booking.resourceName} den ${this.formatDayLong(booking.date)}?`,
+        title: isBlock ? "Ta bort blockering" : "Avboka",
+        message: isBlock
+          ? `Ta bort blockering för ${booking.resourceName} den ${this.formatDayLong(booking.date)}${
+              booking.slotLabel ? ` (${booking.slotLabel})` : ""
+            }?`
+          : `Avboka ${booking.resourceName} den ${this.formatDayLong(booking.date)}?`,
         price: 0
       };
+    },
+
+    openConfirmBlock(payload) {
+      const isFullDay = payload.type === "block-full-day";
+      this.confirm = {
+        open: true,
+        action: payload.type,
+        payload,
+        title: isFullDay ? "Blockera dag" : "Blockera tid",
+        message: isFullDay
+          ? `Blockera ${payload.resourceName} den ${this.formatDayLong(payload.date)}?`
+          : `Blockera ${payload.resourceName} den ${this.formatDayLong(payload.date)} (${payload.slotLabel})?`,
+        price: 0
+      };
+    },
+
+    getBookingApartmentId() {
+      if (this.isAdmin) {
+        return this.adminBookingApartmentId.trim();
+      }
+      return this.userId;
     },
 
     closeConfirm() {
@@ -605,10 +656,14 @@ export function createBookingApp(options = {}) {
       this.clearError();
       try {
         const api = await getApiClient();
+        const bookingApartmentId = this.getBookingApartmentId();
         if (action === "full-day") {
+          if (!bookingApartmentId) {
+            throw new Error("missing_booking_apartment_id");
+          }
           const window = getDayWindow(payload.date);
           await api.bookSlot({
-            apartment_id: this.userId,
+            apartment_id: bookingApartmentId,
             resource_id: payload.resourceId,
             start_time: window.start,
             end_time: window.end,
@@ -616,6 +671,9 @@ export function createBookingApp(options = {}) {
           });
         }
         if (action === "time-slot") {
+          if (!bookingApartmentId) {
+            throw new Error("missing_booking_apartment_id");
+          }
           const slot =
             (this.slotsByDate[payload.date] ?? []).find((item) => item.id === payload.slotId) ??
             null;
@@ -623,21 +681,52 @@ export function createBookingApp(options = {}) {
             throw new Error("Slot saknas.");
           }
           await api.bookSlot({
-            apartment_id: this.userId,
+            apartment_id: bookingApartmentId,
             resource_id: payload.resourceId,
             start_time: slot.startTime,
             end_time: slot.endTime,
             is_billable: Boolean(this.confirm.price && this.confirm.price > 0)
           });
         }
+        if (action === "block-full-day") {
+          const window = getDayWindow(payload.date);
+          await api.createAdminBlock({
+            resource_id: payload.resourceId,
+            start_time: window.start,
+            end_time: window.end,
+            reason: "Adminblockering"
+          });
+        }
+        if (action === "block-time-slot") {
+          const slot =
+            (this.slotsByDate[payload.date] ?? []).find((item) => item.id === payload.slotId) ??
+            null;
+          if (!slot) {
+            throw new Error("Slot saknas.");
+          }
+          await api.createAdminBlock({
+            resource_id: payload.resourceId,
+            start_time: slot.startTime,
+            end_time: slot.endTime,
+            reason: "Adminblockering"
+          });
+        }
         if (action === "cancel") {
-          await api.cancelBooking(payload.id);
+          if (payload.entryType === "block" && typeof api.deleteAdminBlock === "function") {
+            await api.deleteAdminBlock(payload.id);
+          } else {
+            await api.cancelBooking(payload.id);
+          }
         }
         await this.loadBookings();
         await this.refreshSlots();
         this.closeConfirm();
       } catch (error) {
         if (this.handleSessionExpired(error)) {
+          return;
+        }
+        if (error?.message === "missing_booking_apartment_id") {
+          this.showError("Ange användar-ID att boka åt.");
           return;
         }
         this.showError("Kunde inte slutföra åtgärden.");

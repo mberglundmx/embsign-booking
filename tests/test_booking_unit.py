@@ -170,6 +170,23 @@ def test_cancel_booking_as_admin_deletes_other_apartments_booking(
     assert booking.cancel_booking(db_conn, booking_id, apartment_id=None, is_admin=True) is True
 
 
+def test_create_and_delete_block_affects_overlap(db_conn, seeded_apartment, seeded_resource):
+    start = "2026-03-04T08:00:00+00:00"
+    end = "2026-03-04T09:00:00+00:00"
+    block_id = booking.create_block(
+        db_conn,
+        seeded_resource,
+        start,
+        end,
+        reason="Service",
+        created_by="admin",
+    )
+    assert block_id > 0
+    assert booking.has_overlap(db_conn, seeded_resource, seeded_apartment, start, end) is True
+    assert booking.delete_block(db_conn, block_id) is True
+    assert booking.has_overlap(db_conn, seeded_resource, seeded_apartment, start, end) is False
+
+
 def test_list_slots_branch_coverage_for_none_and_full_day(db_conn, seeded_apartment, monkeypatch):
     assert (
         booking.list_slots(db_conn, resource_id=None, date_str=None, apartment_id=seeded_apartment)

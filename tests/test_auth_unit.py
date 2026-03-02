@@ -73,6 +73,7 @@ def test_load_rfid_cache_populates_entries_and_skips_invalid(monkeypatch):
             "1-LGH1013 /1201 tag1;x;UID123;0;x;x;x; Boende | Gym ",
             "broken row",
             "Securitas tag;x;UID999;0;x;x;x;Boende",
+            "Styrelse tag;x;UIDADMIN;0;x;x;x; Styrelse ",
             "1-LGH1001 /1001 tag1;x;;0;x;x;x;Boende",
             "4-LGH 1084/1308 EM K;x;UID777;1;x;x;x; Tvatt ",
         ]
@@ -90,7 +91,7 @@ def test_load_rfid_cache_populates_entries_and_skips_invalid(monkeypatch):
 
     load_rfid_cache()
 
-    assert set(RFID_CACHE.keys()) == {"UID123", "UID777"}
+    assert set(RFID_CACHE.keys()) == {"UID123", "UID777", "UIDADMIN"}
     assert lookup_rfid("UID123") == RfidEntry(
         apartment_id="1-1201",
         house="1",
@@ -100,6 +101,15 @@ def test_load_rfid_cache_populates_entries_and_skips_invalid(monkeypatch):
         access_groups=["Boende", "Gym"],
     )
     assert lookup_rfid("UID777").active is False
+    assert lookup_rfid("UIDADMIN") == RfidEntry(
+        apartment_id=auth.ADMIN_USER_ID,
+        house="",
+        lgh_internal="",
+        skv_lgh="",
+        active=True,
+        access_groups=["Styrelse"],
+        is_admin=True,
+    )
 
 
 def test_load_rfid_cache_handles_fetch_failures(monkeypatch):
