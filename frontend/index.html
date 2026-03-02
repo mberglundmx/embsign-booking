@@ -246,10 +246,7 @@
                 </div>
                 <div class="grid min-w-[720px] grid-cols-7 gap-2">
                   <template x-for="(day, index) in getFullDayCalendar()" :key="day.date ?? `pad-${index}`">
-                    <div
-                      class="rounded-2xl border p-3"
-                      :class="day.isPadding ? 'border-transparent bg-transparent' : 'border-slate-200 bg-white'"
-                    >
+                    <div class="rounded-2xl">
                       <template x-if="!day.isPadding">
                         <button
                           class="w-full rounded-xl border px-3 py-3 text-left text-sm font-semibold transition"
