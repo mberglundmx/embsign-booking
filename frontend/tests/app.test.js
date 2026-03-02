@@ -913,6 +913,317 @@ describe("bookingApp", () => {
     );
   });
 
+  it("vecko- och månadsnavigering hanterar gränser korrekt", async () => {
+    const { app } = createApp();
+    app.refreshSlots = vi.fn().mockResolvedValue();
+    app.days = [
+      "2026-03-02",
+      "2026-03-03",
+      "2026-03-04",
+      "2026-03-05",
+      "2026-03-06",
+      "2026-03-07",
+      "2026-03-08",
+      "2026-03-09",
+      "2026-03-10",
+      "2026-03-11",
+      "2026-03-12",
+      "2026-03-13",
+      "2026-03-14",
+      "2026-03-15",
+      "2026-03-16"
+    ];
+
+    expect(app.weekdayLabels).toEqual(["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"]);
+    expect(app.timeSlotDays).toEqual([
+      "2026-03-02",
+      "2026-03-03",
+      "2026-03-04",
+      "2026-03-05",
+      "2026-03-06",
+      "2026-03-07",
+      "2026-03-08"
+    ]);
+    expect(app.timeSlotWeekNumber).toBe(10);
+    expect(app.canNavigateTimeSlotsBack).toBe(false);
+    expect(app.canNavigateTimeSlotsForward).toBe(true);
+
+    await app.navigateTimeSlots(-1);
+    expect(app.refreshSlots).not.toHaveBeenCalled();
+
+    await app.navigateTimeSlots(1);
+    expect(app.timeSlotStartIndex).toBe(1);
+    expect(app.canNavigateTimeSlotsBack).toBe(true);
+    expect(app.refreshSlots).toHaveBeenCalledTimes(1);
+
+    app.refreshSlots.mockClear();
+    await app.navigateTimeSlots(10);
+    expect(app.timeSlotStartIndex).toBe(1);
+    expect(app.refreshSlots).not.toHaveBeenCalled();
+
+    app.days = ["2026-03-02", "2026-03-31", "2026-04-30"];
+    app.fullDayMonthOffset = 0;
+    expect(app.canNavigateFullDayBack).toBe(false);
+    expect(app.canNavigateFullDayForward).toBe(true);
+    expect(app.fullDayMonthLabel.toLowerCase()).toContain("mars");
+
+    app.refreshSlots.mockClear();
+    await app.navigateFullDayMonths(-1);
+    expect(app.refreshSlots).not.toHaveBeenCalled();
+
+    await app.navigateFullDayMonths(1);
+    expect(app.fullDayMonthOffset).toBe(1);
+    expect(app.refreshSlots).toHaveBeenCalledTimes(1);
+
+    app.refreshSlots.mockClear();
+    await app.navigateFullDayMonths(2);
+    expect(app.fullDayMonthOffset).toBe(1);
+    expect(app.refreshSlots).not.toHaveBeenCalled();
+
+    app.days = [];
+    expect(app.timeSlotDays).toEqual([]);
+    expect(app.timeSlotWeekNumber).toBeNull();
+    expect(app.canNavigateTimeSlotsForward).toBe(false);
+    expect(app.fullDayMonthLabel).toBe("");
+    expect(app.fullDayMonthDays).toEqual([]);
+    expect(app.canNavigateFullDayForward).toBe(false);
+  });
+
+  it("statushjälpare ger rätt status, etiketter och pris", () => {
+    const { app } = createApp();
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dayAfterTomorrow = new Date(today);
+    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+    const thirdFutureDay = new Date(today);
+    thirdFutureDay.setDate(thirdFutureDay.getDate() + 3);
+    const fourthFutureDay = new Date(today);
+    fourthFutureDay.setDate(fourthFutureDay.getDate() + 4);
+    const toDateString = (value) =>
+      `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(
+        value.getDate()
+      ).padStart(2, "0")}`;
+    const yesterdayStr = toDateString(yesterday);
+    const tomorrowStr = toDateString(tomorrow);
+    const dayAfterTomorrowStr = toDateString(dayAfterTomorrow);
+    const thirdFutureDayStr = toDateString(thirdFutureDay);
+    const fourthFutureDayStr = toDateString(fourthFutureDay);
+
+    app.resources = [
+      { id: 1, bookingType: "time-slot", isBillable: false, price: 0 },
+      { id: 2, bookingType: "full-day", isBillable: true, price: 250 }
+    ];
+    app.selectedResourceId = 2;
+    expect(app.getSelectedResourcePrice()).toBe(250);
+    app.selectedResourceId = 1;
+    expect(app.getSelectedResourcePrice()).toBe(0);
+
+    expect(app.getCompactSlotLabel("08:00-10:00")).toBe("08-10");
+    expect(app.getCompactSlotLabel("08:30-10:00")).toBe("08:30-10");
+    expect(app.getCompactSlotLabel("")).toBe("");
+
+    app.days = [tomorrowStr, dayAfterTomorrowStr];
+    expect(app.isDateWithinVisibleRange(tomorrowStr)).toBe(true);
+    expect(app.isDateWithinVisibleRange(yesterdayStr)).toBe(false);
+
+    app.selectedResourceId = 1;
+    app.bookings = [
+      {
+        id: 1,
+        resourceId: 1,
+        date: tomorrowStr,
+        slotLabel: "10:00-11:00",
+        bookingType: "time-slot"
+      },
+      {
+        id: 2,
+        resource_id: 2,
+        date: dayAfterTomorrowStr,
+        slotLabel: null,
+        bookingType: "full-day"
+      }
+    ];
+    app.slotsByDate = {
+      [tomorrowStr]: [
+        { id: "08:00-09:00", isBooked: false, isPast: true },
+        { id: "09:00-10:00", isBooked: true, isPast: false },
+        { id: "10:00-11:00", isBooked: false, isPast: false },
+        { id: "11:00-12:00", isBooked: false, isPast: false }
+      ]
+    };
+    expect(app.getTimeSlotItems(tomorrowStr)).toHaveLength(4);
+    expect(app.hasCurrentUserBookingForSlot(tomorrowStr, "10:00-11:00")).toBe(true);
+    expect(app.getTimeSlotStatus(tomorrowStr, "08:00-09:00")).toBe("past");
+    expect(app.getTimeSlotStatus(tomorrowStr, "10:00-11:00")).toBe("mine");
+    expect(app.getTimeSlotStatus(tomorrowStr, "09:00-10:00")).toBe("booked");
+    expect(app.getTimeSlotStatus(tomorrowStr, "11:00-12:00")).toBe("free");
+    expect(app.isTimeSlotDisabled(tomorrowStr, "11:00-12:00")).toBe(false);
+    expect(app.isTimeSlotDisabled(tomorrowStr, "09:00-10:00")).toBe(true);
+
+    app.selectedResourceId = 2;
+    app.fullDayAvailability = {
+      [tomorrowStr]: { isAvailable: true, isBooked: false, isPast: false },
+      [dayAfterTomorrowStr]: { isAvailable: false, isBooked: true, isPast: false },
+      [thirdFutureDayStr]: { isAvailable: true, isBooked: false, isPast: false },
+      [fourthFutureDayStr]: { isAvailable: false, isBooked: true, isPast: false }
+    };
+    expect(app.hasCurrentUserBookingForDay(dayAfterTomorrowStr)).toBe(true);
+    expect(app.getFullDayStatus(yesterdayStr)).toBe("past");
+    expect(app.getFullDayStatus(dayAfterTomorrowStr)).toBe("mine");
+    expect(app.getFullDayStatus(thirdFutureDayStr)).toBe("free");
+    expect(app.getFullDayStatus(fourthFutureDayStr)).toBe("booked");
+
+    expect(app.getStatusLabel("free")).toBe("Ledig");
+    expect(app.getStatusLabel("mine")).toBe("Bokad av dig");
+    expect(app.getStatusLabel("past")).toBe("Passerad");
+    expect(app.getStatusLabel("booked")).toBe("Upptagen");
+  });
+
+  it("findNextAvailabilityLabel och loadNextAvailability hanterar edge cases", async () => {
+    const { app } = createApp();
+    app.getResourceVisibleDays = vi.fn().mockReturnValue(["2026-03-02", "2026-03-03"]);
+
+    const fullDayRangeApi = {
+      getAvailabilityRange: vi.fn().mockResolvedValue([
+        { date: "2026-03-02", is_available: false },
+        { date: "2026-03-03", is_available: false }
+      ]),
+      getSlots: vi.fn()
+    };
+    await expect(
+      app.findNextAvailabilityLabel(fullDayRangeApi, { id: 2, bookingType: "full-day" })
+    ).resolves.toBe("__none__");
+
+    const fullDayFallbackApi = {
+      getSlots: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            start_time: "2026-03-02T00:00:00+00:00",
+            end_time: "2026-03-03T00:00:00+00:00",
+            is_booked: true,
+            is_past: false
+          }
+        ])
+        .mockResolvedValueOnce([
+          {
+            start_time: "2026-03-03T00:00:00+00:00",
+            end_time: "2026-03-04T00:00:00+00:00",
+            is_booked: false,
+            is_past: false
+          }
+        ])
+    };
+    const fullDayLabel = await app.findNextAvailabilityLabel(fullDayFallbackApi, {
+      id: 2,
+      bookingType: "full-day"
+    });
+    expect(fullDayLabel).not.toBe("__none__");
+
+    const timeSlotNoneApi = {
+      getSlots: vi.fn().mockResolvedValue([
+        {
+          start_time: "2026-03-02T08:00:00+00:00",
+          end_time: "2026-03-02T09:00:00+00:00",
+          is_booked: true,
+          is_past: false
+        }
+      ])
+    };
+    await expect(
+      app.findNextAvailabilityLabel(timeSlotNoneApi, { id: 1, bookingType: "time-slot" })
+    ).resolves.toBe("__none__");
+
+    app.resources = [];
+    app.nextAvailableByResourceId = { 99: "tidigare" };
+    await app.loadNextAvailability();
+    expect(app.nextAvailableByResourceId).toEqual({});
+
+    app.resources = [{ id: 1 }, { id: 2 }];
+    app.findNextAvailabilityLabel = vi.fn().mockImplementation(async (_api, resource) => {
+      if (resource.id === 1) {
+        throw new Error("fail");
+      }
+      return "ledig etikett";
+    });
+    await app.loadNextAvailability();
+    expect(app.nextAvailableByResourceId).toEqual({
+      1: "__none__",
+      2: "ledig etikett"
+    });
+  });
+
+  it("loadNextAvailability och load* kastar/hanterar fel i fallback-grenar", async () => {
+    const windowObject = createWindowMock();
+    const failingApiGetter = vi.fn().mockRejectedValue(new Error("api unavailable"));
+    const appWithFailingApi = createBookingApp({
+      getApiClient: failingApiGetter,
+      modeDetector: () => "desktop",
+      useMocks: true,
+      windowObject
+    });
+    appWithFailingApi.resources = [{ id: 3 }, { id: 4 }];
+    await appWithFailingApi.loadNextAvailability();
+    expect(appWithFailingApi.nextAvailableByResourceId).toEqual({
+      3: "__none__",
+      4: "__none__"
+    });
+
+    const brokenBookings = createApp({
+      apiOverrides: {
+        getBookings: vi.fn().mockRejectedValue(new Error("bookings-down"))
+      }
+    });
+    brokenBookings.app.userId = "1-1201";
+    await expect(brokenBookings.app.loadBookings()).rejects.toThrow("bookings-down");
+
+    const brokenResources = createApp({
+      apiOverrides: {
+        getResources: vi.fn().mockRejectedValue(new Error("resources-down"))
+      }
+    });
+    await expect(brokenResources.app.loadResources()).rejects.toThrow("resources-down");
+  });
+
+  it("refreshSlots för heldag fallbackar till getSlots när range-endpoint saknas", async () => {
+    const { app, api } = createApp({
+      apiOverrides: {
+        getAvailabilityRange: undefined,
+        getSlots: vi.fn().mockImplementation((_resourceId, date) =>
+          Promise.resolve([
+            {
+              start_time: `${date}T00:00:00+00:00`,
+              end_time: `${date}T23:59:00+00:00`,
+              is_booked: date === "2026-03-03",
+              is_past: false
+            }
+          ])
+        )
+      }
+    });
+
+    app.resources = [{ id: 2, bookingType: "full-day", maxAdvanceDays: 31, minAdvanceDays: 0 }];
+    app.selectedResourceId = 2;
+    app.days = ["2026-03-02", "2026-03-03"];
+
+    await app.refreshSlots();
+
+    expect(api.getSlots).toHaveBeenCalled();
+    expect(app.fullDayAvailability["2026-03-02"]).toEqual({
+      isAvailable: true,
+      isBooked: false,
+      isPast: false
+    });
+    expect(app.fullDayAvailability["2026-03-03"]).toEqual({
+      isAvailable: false,
+      isBooked: true,
+      isPast: false
+    });
+  });
+
   it("showError/clearError hanterar timers korrekt", () => {
     let timeoutCallback = null;
     const timerWindow = {
