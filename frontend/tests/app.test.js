@@ -689,9 +689,11 @@ describe("bookingApp", () => {
   it("kalender- och slot-hjälpfunktioner ger förväntat resultat", () => {
     const { app } = createApp();
     app.days = ["2026-03-01"];
-    app.fullDayAvailability = { "2026-03-01": false };
+    app.fullDayAvailability = {
+      "2026-03-01": { isAvailable: false, isBooked: true, isPast: false }
+    };
     const calendar = app.getFullDayCalendar();
-    expect(calendar).toHaveLength(7);
+    expect(calendar).toHaveLength(37);
     expect(calendar.filter((day) => day.isPadding)).toHaveLength(6);
     expect(app.isDayBooked("2026-03-01")).toBe(true);
 
@@ -733,10 +735,13 @@ describe("bookingApp", () => {
 
     await timeSlotApp.app.refreshSlots();
     expect(Object.keys(timeSlotApp.app.slotsByDate)).toEqual([
+      "2026-03-02",
+      "2026-03-03",
+      "2026-03-04",
+      "2026-03-05",
       "2026-03-06",
       "2026-03-07",
-      "2026-03-08",
-      "2026-03-09"
+      "2026-03-08"
     ]);
     expect(timeSlotApp.app.availabilityLoading).toBe(false);
 
@@ -760,9 +765,17 @@ describe("bookingApp", () => {
     fullDayApp.app.selectedResourceId = 2;
     fullDayApp.app.days = ["2026-03-07", "2026-03-08"];
     await fullDayApp.app.refreshSlots();
-    expect(fullDayApp.api.getAvailabilityRange).toHaveBeenCalledWith(2, "2026-03-07", "2026-03-08");
-    expect(fullDayApp.app.fullDayAvailability["2026-03-07"]).toBe(false);
-    expect(fullDayApp.app.fullDayAvailability["2026-03-08"]).toBe(true);
+    expect(fullDayApp.api.getAvailabilityRange).toHaveBeenCalledWith(2, "2026-03-01", "2026-03-31");
+    expect(fullDayApp.app.fullDayAvailability["2026-03-07"]).toEqual({
+      isAvailable: false,
+      isBooked: true,
+      isPast: false
+    });
+    expect(fullDayApp.app.fullDayAvailability["2026-03-08"]).toEqual({
+      isAvailable: true,
+      isBooked: false,
+      isPast: false
+    });
 
     const pending = [];
     const stale = createApp({
