@@ -8,7 +8,7 @@ import {
 
 const DEFAULT_MODE = "desktop";
 const FULL_DAY_COUNT = 30;
-const TIME_SLOT_DAYS_VISIBLE = 4;
+const TIME_SLOT_DAYS_VISIBLE = 7;
 const WEEKDAY_LABELS = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
 const NEXT_AVAILABILITY_LOADING = "__loading__";
 const NEXT_AVAILABILITY_NONE = "__none__";
@@ -40,6 +40,40 @@ function addDays(date, days) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function addMonths(date, months) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function getStartOfWeekMonday(date) {
+  const weekStart = new Date(date);
+  const dayIndex = (weekStart.getDay() + 6) % 7;
+  weekStart.setDate(weekStart.getDate() - dayIndex);
+  weekStart.setHours(0, 0, 0, 0);
+  return weekStart;
+}
+
+function getStartOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function getEndOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function getIsoWeekNumber(date) {
+  const localDate = new Date(date);
+  localDate.setHours(0, 0, 0, 0);
+  const weekday = (localDate.getDay() + 6) % 7;
+  localDate.setDate(localDate.getDate() + 3 - weekday);
+  const firstThursday = new Date(localDate.getFullYear(), 0, 4);
+  const firstWeekday = (firstThursday.getDay() + 6) % 7;
+  firstThursday.setDate(firstThursday.getDate() + 3 - firstWeekday);
+  const dayDiff = (localDate.getTime() - firstThursday.getTime()) / (24 * 60 * 60 * 1000);
+  return 1 + Math.round(dayDiff / 7);
 }
 
 function getDateString(date) {
@@ -198,6 +232,7 @@ export function createBookingApp(options = {}) {
     days: [],
     selectedResourceId: null,
     timeSlotStartIndex: 0,
+    fullDayMonthOffset: 0,
     slotsByDate: {},
     fullDayAvailability: {},
     loading: false,
@@ -269,9 +304,10 @@ export function createBookingApp(options = {}) {
     },
 
     get timeSlotDays() {
-      return this.days.slice(
-        this.timeSlotStartIndex,
-        this.timeSlotStartIndex + TIME_SLOT_DAYS_VISIBLE
+      const currentWeekStart = this.currentTimeSlotWeekStart;
+      if (!currentWeekStart) return [];
+      return Array.from({ length: TIME_SLOT_DAYS_VISIBLE }, (_, index) =>
+        getDateString(addDays(currentWeekStart, index))
       );
     },
 
@@ -280,9 +316,15 @@ export function createBookingApp(options = {}) {
     },
 
     getTimeSlotLabels() {
-      const firstDay = this.timeSlotDays[0];
-      if (!firstDay) return [];
-      return this.slotsByDate[firstDay] ?? [];
+      const labelsBySlotId = new Map();
+      this.timeSlotDays.forEach((date) => {
+        (this.slotsByDate[date] ?? []).forEach((slot) => {
+          if (!labelsBySlotId.has(slot.id)) {
+            labelsBySlotId.set(slot.id, slot);
+          }
+        });
+      });
+      return [...labelsBySlotId.values()];
     },
 
     getSlotLabelParts(label) {
@@ -300,6 +342,51 @@ export function createBookingApp(options = {}) {
         isSaturday: dayIndex === 6,
         isSunday: dayIndex === 0
       };
+    },
+
+    get firstVisibleDate() {
+      return this.days[0] ?? null;
+    },
+
+    get lastVisibleDate() {
+      return this.days[this.days.length - 1] ?? null;
+    },
+
+    get currentTimeSlotWeekStart() {
+      if (!this.firstVisibleDate) return null;
+      const firstWeekStart = getStartOfWeekMonday(parseLocalDateString(this.firstVisibleDate));
+      return addDays(firstWeekStart, this.timeSlotStartIndex * TIME_SLOT_DAYS_VISIBLE);
+    },
+
+    get timeSlotWeekNumber() {
+      if (!this.currentTimeSlotWeekStart) return null;
+      return getIsoWeekNumber(this.currentTimeSlotWeekStart);
+    },
+
+    get currentFullDayMonthStart() {
+      if (!this.firstVisibleDate) return null;
+      const firstMonth = getStartOfMonth(parseLocalDateString(this.firstVisibleDate));
+      return getStartOfMonth(addMonths(firstMonth, this.fullDayMonthOffset));
+    },
+
+    get fullDayMonthLabel() {
+      if (!this.currentFullDayMonthStart) return "";
+      return new Intl.DateTimeFormat("sv-SE", { month: "long", year: "numeric" }).format(
+        this.currentFullDayMonthStart
+      );
+    },
+
+    get fullDayMonthDays() {
+      if (!this.currentFullDayMonthStart) return [];
+      const monthStart = this.currentFullDayMonthStart;
+      const monthEnd = getEndOfMonth(monthStart);
+      const days = [];
+      let cursor = new Date(monthStart);
+      while (cursor <= monthEnd) {
+        days.push(getDateString(cursor));
+        cursor = addDays(cursor, 1);
+      }
+      return days;
     },
 
     formatDay(dateString) {
@@ -383,6 +470,7 @@ export function createBookingApp(options = {}) {
       this.selectedResourceId = resourceId;
       this.days = getUpcomingDays(this.getVisibleDayCount(), this.getMinAdvanceDays());
       this.timeSlotStartIndex = 0;
+      this.fullDayMonthOffset = 0;
       this.resetAvailabilityData();
       await this.refreshSlots();
       if (this.isAuthenticated && this.isSetupStep) {
@@ -395,14 +483,44 @@ export function createBookingApp(options = {}) {
     },
 
     get canNavigateTimeSlotsForward() {
-      return this.timeSlotStartIndex + TIME_SLOT_DAYS_VISIBLE < this.days.length;
+      if (!this.currentTimeSlotWeekStart || !this.lastVisibleDate) return false;
+      const nextWeekStart = addDays(this.currentTimeSlotWeekStart, TIME_SLOT_DAYS_VISIBLE);
+      const lastWeekStart = getStartOfWeekMonday(parseLocalDateString(this.lastVisibleDate));
+      return nextWeekStart <= lastWeekStart;
     },
 
     async navigateTimeSlots(step) {
       const nextIndex = this.timeSlotStartIndex + step;
       if (nextIndex < 0) return;
-      if (nextIndex + TIME_SLOT_DAYS_VISIBLE > this.days.length) return;
+      if (!this.firstVisibleDate || !this.lastVisibleDate) return;
+      const firstWeekStart = getStartOfWeekMonday(parseLocalDateString(this.firstVisibleDate));
+      const lastWeekStart = getStartOfWeekMonday(parseLocalDateString(this.lastVisibleDate));
+      const nextWeekStart = addDays(firstWeekStart, nextIndex * TIME_SLOT_DAYS_VISIBLE);
+      if (nextWeekStart > lastWeekStart) return;
       this.timeSlotStartIndex = nextIndex;
+      await this.refreshSlots();
+    },
+
+    get canNavigateFullDayBack() {
+      return this.fullDayMonthOffset > 0;
+    },
+
+    get canNavigateFullDayForward() {
+      if (!this.currentFullDayMonthStart || !this.lastVisibleDate) return false;
+      const nextMonth = getStartOfMonth(addMonths(this.currentFullDayMonthStart, 1));
+      const lastVisibleMonth = getStartOfMonth(parseLocalDateString(this.lastVisibleDate));
+      return nextMonth <= lastVisibleMonth;
+    },
+
+    async navigateFullDayMonths(step) {
+      const nextOffset = this.fullDayMonthOffset + step;
+      if (nextOffset < 0) return;
+      if (!this.firstVisibleDate || !this.lastVisibleDate) return;
+      const firstVisibleMonth = getStartOfMonth(parseLocalDateString(this.firstVisibleDate));
+      const lastVisibleMonth = getStartOfMonth(parseLocalDateString(this.lastVisibleDate));
+      const nextMonth = getStartOfMonth(addMonths(firstVisibleMonth, nextOffset));
+      if (nextMonth > lastVisibleMonth) return;
+      this.fullDayMonthOffset = nextOffset;
       await this.refreshSlots();
     },
 
@@ -575,7 +693,7 @@ export function createBookingApp(options = {}) {
     },
 
     isDayBooked(dateString) {
-      return this.fullDayAvailability[dateString] === false;
+      return this.getFullDayStatus(dateString) !== "free";
     },
 
     isSlotBooked(dateString, slotId) {
@@ -740,10 +858,9 @@ export function createBookingApp(options = {}) {
     },
 
     getFullDayCalendar() {
-      const calendarDays = this.days.map((date) => ({
+      const calendarDays = this.fullDayMonthDays.map((date) => ({
         date,
         label: this.getDayLabel(date),
-        booked: this.isDayBooked(date),
         isPadding: false
       }));
       const firstDate = calendarDays[0]?.date;
@@ -757,6 +874,88 @@ export function createBookingApp(options = {}) {
         isPadding: true
       }));
       return [...padding, ...calendarDays];
+    },
+
+    isDatePast(dateString) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return parseLocalDateString(dateString) < today;
+    },
+
+    isDateWithinVisibleRange(dateString) {
+      if (!this.firstVisibleDate || !this.lastVisibleDate) return false;
+      return dateString >= this.firstVisibleDate && dateString <= this.lastVisibleDate;
+    },
+
+    getSelectedResourcePrice() {
+      return this.selectedResource?.isBillable && this.selectedResource?.price > 0
+        ? this.selectedResource.price
+        : 0;
+    },
+
+    getCompactSlotLabel(label) {
+      if (!label) return "";
+      const [startRaw, endRaw] = label.split("-");
+      const compactPart = (value) => {
+        const trimmed = value?.trim() ?? "";
+        if (trimmed.endsWith(":00")) {
+          return trimmed.slice(0, 2);
+        }
+        return trimmed;
+      };
+      const start = compactPart(startRaw);
+      const end = compactPart(endRaw);
+      if (!start || !end) return label;
+      return `${start}-${end}`;
+    },
+
+    hasCurrentUserBookingForSlot(dateString, slotId) {
+      const selectedResourceId = Number(this.selectedResourceId);
+      return this.bookings.some((booking) => {
+        const bookingResourceId = Number(booking.resourceId ?? booking.resource_id);
+        return (
+          Number.isFinite(bookingResourceId) &&
+          bookingResourceId === selectedResourceId &&
+          booking.date === dateString &&
+          booking.slotLabel === slotId
+        );
+      });
+    },
+
+    hasCurrentUserBookingForDay(dateString) {
+      const selectedResourceId = Number(this.selectedResourceId);
+      return this.bookings.some((booking) => {
+        const bookingResourceId = Number(booking.resourceId ?? booking.resource_id);
+        return (
+          Number.isFinite(bookingResourceId) &&
+          bookingResourceId === selectedResourceId &&
+          booking.date === dateString &&
+          booking.bookingType === "full-day"
+        );
+      });
+    },
+
+    getTimeSlotStatus(dateString, slotId) {
+      if (this.isTimeSlotPast(dateString, slotId)) return "past";
+      if (this.hasCurrentUserBookingForSlot(dateString, slotId)) return "mine";
+      if (this.isTimeSlotBooked(dateString, slotId)) return "booked";
+      return "free";
+    },
+
+    getFullDayStatus(dateString) {
+      const availability = this.fullDayAvailability[dateString] ?? null;
+      const isPast = Boolean(availability?.isPast) || this.isDatePast(dateString);
+      if (isPast) return "past";
+      if (this.hasCurrentUserBookingForDay(dateString)) return "mine";
+      if (availability?.isAvailable) return "free";
+      return "booked";
+    },
+
+    getStatusLabel(status) {
+      if (status === "free") return "Ledig";
+      if (status === "mine") return "Bokad av dig";
+      if (status === "past") return "Passerad";
+      return "Upptagen";
     },
 
     getTimeSlotItems(dateString) {
@@ -774,7 +973,7 @@ export function createBookingApp(options = {}) {
     },
 
     isTimeSlotDisabled(dateString, slotId) {
-      return this.isTimeSlotPast(dateString, slotId) || this.isTimeSlotBooked(dateString, slotId);
+      return this.getTimeSlotStatus(dateString, slotId) !== "free";
     },
 
     resetAvailabilityData() {
@@ -790,7 +989,7 @@ export function createBookingApp(options = {}) {
       const resourceId = this.selectedResourceId;
       const bookingType = this.selectedResource?.bookingType;
       const timeSlotDays = [...this.timeSlotDays];
-      const fullDayDays = [...this.days];
+      const fullDayDays = [...this.fullDayMonthDays];
 
       this.availabilityLoading = true;
       if (bookingType === "time-slot") {
@@ -816,7 +1015,16 @@ export function createBookingApp(options = {}) {
           }
           this.slotsByDate = Object.fromEntries(entries);
         } else {
-          const availabilityByDate = Object.fromEntries(fullDayDays.map((date) => [date, false]));
+          const availabilityByDate = Object.fromEntries(
+            fullDayDays.map((date) => [
+              date,
+              {
+                isAvailable: false,
+                isBooked: false,
+                isPast: false
+              }
+            ])
+          );
           if (typeof api.getAvailabilityRange === "function" && fullDayDays.length > 0) {
             const availability = await api.getAvailabilityRange(
               resourceId,
@@ -826,20 +1034,30 @@ export function createBookingApp(options = {}) {
             availability.forEach((item) => {
               const date = item?.date;
               if (!Object.prototype.hasOwnProperty.call(availabilityByDate, date)) return;
-              availabilityByDate[date] = Boolean(item?.is_available ?? item?.available);
+              availabilityByDate[date] = {
+                isAvailable: Boolean(item?.is_available ?? item?.available),
+                isBooked: Boolean(item?.is_booked ?? item?.isBooked),
+                isPast: Boolean(item?.is_past ?? item?.isPast)
+              };
             });
           } else {
             const availabilityEntries = await Promise.all(
               fullDayDays.map(async (date) => {
                 const slots = await api.getSlots(resourceId, date);
                 const normalized = normalizeSlots(slots);
-                const available =
-                  normalized.length > 0 && !normalized[0].isBooked && !normalized[0].isPast;
-                return [date, available];
+                const firstSlot = normalized[0] ?? null;
+                return [
+                  date,
+                  {
+                    isAvailable: Boolean(firstSlot && !firstSlot.isBooked && !firstSlot.isPast),
+                    isBooked: Boolean(firstSlot?.isBooked),
+                    isPast: Boolean(firstSlot?.isPast)
+                  }
+                ];
               })
             );
-            availabilityEntries.forEach(([date, available]) => {
-              availabilityByDate[date] = Boolean(available);
+            availabilityEntries.forEach(([date, availabilityItem]) => {
+              availabilityByDate[date] = availabilityItem;
             });
           }
           if (
@@ -957,6 +1175,7 @@ export function createBookingApp(options = {}) {
         this.selectedResourceId = this.resources[0]?.id ?? null;
         this.days = getUpcomingDays(this.getVisibleDayCount(), this.getMinAdvanceDays());
         this.timeSlotStartIndex = 0;
+        this.fullDayMonthOffset = 0;
         this.resetAvailabilityData();
         await this.loadNextAvailability();
       } catch (error) {
