@@ -678,11 +678,12 @@ export function createBookingApp(options = {}) {
       if (!this.userId) return;
       try {
         const api = await getApiClient();
-        const bookings = this.isAdmin && typeof api.getAdminCalendar === "function"
-          ? await api.getAdminCalendar()
-          : api.getBookings.length > 0
-            ? await api.getBookings(this.userId)
-            : await api.getBookings();
+        const bookings =
+          this.isAdmin && typeof api.getAdminCalendar === "function"
+            ? await api.getAdminCalendar()
+            : api.getBookings.length > 0
+              ? await api.getBookings(this.userId)
+              : await api.getBookings();
         this.bookings = normalizeBookings(bookings);
       } catch (error) {
         if (this.handleSessionExpired(error)) {

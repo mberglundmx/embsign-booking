@@ -315,7 +315,9 @@ def block_time(payload: AdminBlockRequest, session=Depends(require_session), con
 
 
 @app.delete("/admin/block")
-def unblock_time(payload: DeleteBlockRequest, session=Depends(require_session), conn=Depends(get_db)):
+def unblock_time(
+    payload: DeleteBlockRequest, session=Depends(require_session), conn=Depends(get_db)
+):
     if not session["is_admin"]:
         raise HTTPException(status_code=403, detail="forbidden")
     deleted = delete_block(conn, payload.block_id)

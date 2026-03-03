@@ -82,7 +82,9 @@ function hasResourceOverlap(resourceId, startTime, endTime) {
 function hasApartmentOverlap(apartmentId, startTime, endTime) {
   return bookings.some(
     (booking) =>
-      booking.apartment_id === apartmentId && booking.start_time < endTime && booking.end_time > startTime
+      booking.apartment_id === apartmentId &&
+      booking.start_time < endTime &&
+      booking.end_time > startTime
   );
 }
 
