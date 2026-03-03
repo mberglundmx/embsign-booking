@@ -12,11 +12,13 @@ const TIME_SLOT_DAYS_VISIBLE = 7;
 const WEEKDAY_LABELS = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
 const NEXT_AVAILABILITY_LOADING = "__loading__";
 const NEXT_AVAILABILITY_NONE = "__none__";
+const DEFAULT_DEPLOY_CHECK_INTERVAL_MS = 30000;
 const RAW_CONFIGURED_PUBLIC_HOSTNAME = import.meta.env.VITE_PUBLIC_HOSTNAME ?? "";
 const RAW_FRONTEND_ORIGINS =
   import.meta.env.VITE_FRONTEND_ORIGINS ?? import.meta.env.FRONTEND_ORIGINS ?? "";
 const DEMO_RFID_UID = import.meta.env.VITE_RFID_UID || "UID123";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
+const DEPLOY_AUTO_RELOAD_ENABLED = import.meta.env.VITE_AUTO_RELOAD_ON_DEPLOY !== "false";
 
 let apiPromise = null;
 
@@ -202,6 +204,121 @@ function normalizeSlots(slots) {
 function getDayWindow(dateString) {
   const { startIso, endIso } = getUtcDayWindow(dateString);
   return { start: startIso, end: endIso };
+}
+
+export function resolveDeployCheckIntervalMs(rawValue) {
+  const parsed = Number.parseInt(String(rawValue ?? ""), 10);
+  if (!Number.isFinite(parsed) || parsed < 5000) {
+    return DEFAULT_DEPLOY_CHECK_INTERVAL_MS;
+  }
+  return parsed;
+}
+
+function normalizeAssetPath(assetPath, locationObject) {
+  if (!assetPath) return "";
+  try {
+    return new URL(assetPath, locationObject.href).pathname;
+  } catch {
+    return assetPath.trim();
+  }
+}
+
+export function getAssetFingerprintFromDocument(documentObject, locationObject) {
+  if (!documentObject || !locationObject) return "";
+  const styleAssets = Array.from(
+    documentObject.querySelectorAll('link[rel="stylesheet"][href]'),
+    (element) => element.getAttribute("href") ?? ""
+  );
+  const scriptAssets = Array.from(
+    documentObject.querySelectorAll('script[type="module"][src]'),
+    (element) => element.getAttribute("src") ?? ""
+  );
+  const uniqueAssets = [...new Set([...styleAssets, ...scriptAssets])]
+    .map((assetPath) => normalizeAssetPath(assetPath, locationObject))
+    .filter(Boolean)
+    .sort();
+  return uniqueAssets.join("|");
+}
+
+export function getAssetFingerprintFromHtml(html, locationObject) {
+  if (!html || !locationObject) return "";
+  const parser = new DOMParser();
+  const parsedDocument = parser.parseFromString(html, "text/html");
+  return getAssetFingerprintFromDocument(parsedDocument, locationObject);
+}
+
+function buildDeployProbeUrl(locationObject) {
+  const probeUrl = new URL(locationObject.href);
+  probeUrl.searchParams.set("__deploy_probe", String(Date.now()));
+  return probeUrl.toString();
+}
+
+export function startDeployAutoReload(options = {}) {
+  const runtimeWindow =
+    options.windowObject ?? (typeof window !== "undefined" ? window : globalThis);
+  if (!runtimeWindow?.document || !runtimeWindow?.location) {
+    return () => {};
+  }
+
+  const fetchImpl = options.fetchImpl ?? runtimeWindow.fetch?.bind(runtimeWindow);
+  if (typeof fetchImpl !== "function") {
+    return () => {};
+  }
+
+  const intervalMs = resolveDeployCheckIntervalMs(
+    options.intervalMs ?? import.meta.env.VITE_DEPLOY_CHECK_INTERVAL_MS
+  );
+  const currentFingerprint = getAssetFingerprintFromDocument(
+    runtimeWindow.document,
+    runtimeWindow.location
+  );
+  if (!currentFingerprint) {
+    return () => {};
+  }
+
+  let stopped = false;
+  let timeoutId = null;
+
+  const scheduleNextCheck = () => {
+    if (stopped) return;
+    timeoutId = runtimeWindow.setTimeout(checkForDeployUpdate, intervalMs);
+  };
+
+  const checkForDeployUpdate = async () => {
+    try {
+      const response = await fetchImpl(buildDeployProbeUrl(runtimeWindow.location), {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: {
+          "Cache-Control": "no-cache"
+        }
+      });
+      if (!response.ok) return;
+      const html = await response.text();
+      const remoteFingerprint = getAssetFingerprintFromHtml(html, runtimeWindow.location);
+      if (!remoteFingerprint || remoteFingerprint === currentFingerprint) return;
+      console.info("[deploy] Ny deploy upptäckt, laddar om sidan.");
+      stopped = true;
+      runtimeWindow.location.reload();
+      return;
+    } catch {
+      // Ignorera tillfälliga nätverksfel och försök igen.
+    } finally {
+      if (!stopped) {
+        scheduleNextCheck();
+      }
+    }
+  };
+
+  scheduleNextCheck();
+
+  return () => {
+    stopped = true;
+    if (timeoutId !== null) {
+      runtimeWindow.clearTimeout(timeoutId);
+    }
+  };
 }
 
 export function createBookingApp(options = {}) {
@@ -1216,4 +1333,7 @@ const isTestEnv =
 if (!isTestEnv) {
   Alpine.data("bookingApp", () => createBookingApp());
   Alpine.start();
+  if (DEPLOY_AUTO_RELOAD_ENABLED) {
+    startDeployAutoReload();
+  }
 }
