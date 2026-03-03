@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createBookingApp,
   detectMode,
+  getAssetFingerprintFromHtml,
   getHostnameFromAddress,
-  getHostnameFromFrontendOrigins
+  getHostnameFromFrontendOrigins,
+  resolveDeployCheckIntervalMs,
+  startDeployAutoReload
 } from "../src/app";
 
 const BASE_RESOURCE = {
@@ -116,6 +119,18 @@ function createApiMock(overrides = {}) {
   };
 }
 
+function createAssetHtml(assetTag) {
+  return `<!doctype html>
+<html lang="sv">
+  <head>
+    <link rel="stylesheet" href="/assets/app-${assetTag}.css" />
+  </head>
+  <body>
+    <script type="module" src="/assets/app-${assetTag}.js"></script>
+  </body>
+</html>`;
+}
+
 function createApp({
   apiOverrides = {},
   mode = "desktop",
@@ -167,6 +182,63 @@ describe("hostname helpers", () => {
       "bokning.example.se"
     );
     expect(getHostnameFromFrontendOrigins("")).toBe("");
+  });
+});
+
+describe("deploy auto reload", () => {
+  it("normaliserar polling-intervall med rimliga gränser", () => {
+    expect(resolveDeployCheckIntervalMs(undefined)).toBe(30000);
+    expect(resolveDeployCheckIntervalMs("abc")).toBe(30000);
+    expect(resolveDeployCheckIntervalMs("1000")).toBe(30000);
+    expect(resolveDeployCheckIntervalMs("9000")).toBe(9000);
+  });
+
+  it("bygger fingerprint från HTML-assets", () => {
+    const locationObject = { href: "https://boka.example.se/booking?mode=pos" };
+    const fingerprint = getAssetFingerprintFromHtml(createAssetHtml("v1"), locationObject);
+    expect(fingerprint).toBe("/assets/app-v1.css|/assets/app-v1.js");
+  });
+
+  it("laddar om sidan när en ny deploy upptäcks", async () => {
+    vi.useFakeTimers();
+    const firstHtml = createAssetHtml("v1");
+    const secondHtml = createAssetHtml("v2");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: vi.fn().mockResolvedValue(firstHtml)
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: vi.fn().mockResolvedValue(secondHtml)
+      });
+    const reload = vi.fn();
+    const windowObject = {
+      document: new DOMParser().parseFromString(firstHtml, "text/html"),
+      location: {
+        href: "https://boka.example.se/booking?mode=pos",
+        reload
+      },
+      fetch: fetchMock,
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis)
+    };
+
+    const stopWatcher = startDeployAutoReload({
+      windowObject,
+      intervalMs: 5000
+    });
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(reload).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toContain("__deploy_probe=");
+
+    stopWatcher();
   });
 });
 
