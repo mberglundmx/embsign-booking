@@ -61,6 +61,21 @@ function createApiMock(overrides = {}) {
         price_cents: 0
       }
     ]),
+    getAdminCalendar: vi.fn().mockResolvedValue([
+      {
+        id: 1,
+        apartment_id: "admin",
+        resource_id: 1,
+        resource_name: "Tvättstuga 1",
+        start_time: "2026-03-06T08:00:00+00:00",
+        end_time: "2026-03-06T09:00:00+00:00",
+        is_billable: false,
+        booking_type: "time-slot",
+        price_cents: 0,
+        entry_type: "booking",
+        blocked_reason: null
+      }
+    ]),
     getSlots: vi.fn().mockImplementation((resourceId, date) => {
       if (resourceId === 2) {
         return Promise.resolve([
@@ -95,6 +110,8 @@ function createApiMock(overrides = {}) {
     }),
     bookSlot: vi.fn().mockResolvedValue({ booking_id: 99 }),
     cancelBooking: vi.fn().mockResolvedValue({ status: "ok" }),
+    createAdminBlock: vi.fn().mockResolvedValue({ block_id: 123 }),
+    deleteAdminBlock: vi.fn().mockResolvedValue({ status: "ok" }),
     ...overrides
   };
 }
@@ -350,6 +367,43 @@ describe("bookingApp", () => {
     expect(backendDown.app.showError).toHaveBeenCalledWith(
       "Backend kunde inte nås. Kontrollera anslutningen."
     );
+  });
+
+  it("adminlogin aktiverar adminläge och hämtar adminkalender", async () => {
+    const { app, api } = createApp({
+      apiOverrides: {
+        loginWithPassword: vi.fn().mockResolvedValue({
+          apartment_id: "admin",
+          booking_url: "/booking",
+          is_admin: true
+        }),
+        getAdminCalendar: vi.fn().mockResolvedValue([
+          {
+            id: 10,
+            apartment_id: "B202",
+            resource_id: 1,
+            resource_name: "Tvättstuga 1",
+            start_time: "2026-03-12T08:00:00+00:00",
+            end_time: "2026-03-12T09:00:00+00:00",
+            is_billable: false,
+            booking_type: "time-slot",
+            price_cents: 0,
+            entry_type: "booking",
+            blocked_reason: null
+          }
+        ])
+      }
+    });
+    app.userIdInput = "admin";
+    app.passwordInput = "admin";
+    app.loadResources = vi.fn().mockResolvedValue();
+    app.refreshSlots = vi.fn().mockResolvedValue();
+
+    await app.loginPassword();
+
+    expect(app.isAdmin).toBe(true);
+    expect(api.getAdminCalendar).toHaveBeenCalledTimes(1);
+    expect(app.bookings[0].apartmentId).toBe("B202");
   });
 
   it("använder booking_url från login för publik bokningsadress", async () => {
@@ -684,6 +738,92 @@ describe("bookingApp", () => {
     expect(unauthorized.app.showError).toHaveBeenCalledWith(
       "Sessionen har gått ut. Logga in igen."
     );
+  });
+
+  it("admin kan blockera tid och ta bort blockering", async () => {
+    const { app, api } = createApp();
+    app.isAuthenticated = true;
+    app.isAdmin = true;
+    app.userId = "admin";
+    app.adminBookingApartmentId = "1-1201";
+    app.resources = [{ id: 1, price: 0, bookingType: "time-slot" }];
+    app.slotsByDate = {
+      "2026-03-08": [
+        {
+          id: "08:00-09:00",
+          startTime: "2026-03-08T08:00:00+00:00",
+          endTime: "2026-03-08T09:00:00+00:00",
+          isBooked: false,
+          isPast: false
+        }
+      ]
+    };
+    app.loadBookings = vi.fn().mockResolvedValue();
+    app.refreshSlots = vi.fn().mockResolvedValue();
+
+    app.openConfirmBlock({
+      type: "block-time-slot",
+      resourceId: 1,
+      resourceName: "Tvättstuga",
+      date: "2026-03-08",
+      slotId: "08:00-09:00",
+      slotLabel: "08:00-09:00"
+    });
+    await app.confirmAction();
+    expect(api.createAdminBlock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resource_id: 1,
+        start_time: "2026-03-08T08:00:00+00:00",
+        end_time: "2026-03-08T09:00:00+00:00"
+      })
+    );
+
+    app.confirm = {
+      open: true,
+      action: "cancel",
+      payload: {
+        id: 123,
+        entryType: "block",
+        resourceName: "Tvättstuga",
+        date: "2026-03-08"
+      },
+      price: 0
+    };
+    await app.confirmAction();
+    expect(api.deleteAdminBlock).toHaveBeenCalledWith(123);
+  });
+
+  it("adminbokning kräver användar-ID att boka åt", async () => {
+    const { app } = createApp();
+    app.isAuthenticated = true;
+    app.isAdmin = true;
+    app.userId = "admin";
+    app.adminBookingApartmentId = "";
+    app.showError = vi.fn();
+    app.confirm = {
+      open: true,
+      action: "time-slot",
+      payload: {
+        resourceId: 1,
+        date: "2026-03-08",
+        slotId: "08:00-09:00"
+      },
+      price: 0
+    };
+    app.slotsByDate = {
+      "2026-03-08": [
+        {
+          id: "08:00-09:00",
+          startTime: "2026-03-08T08:00:00+00:00",
+          endTime: "2026-03-08T09:00:00+00:00",
+          isBooked: false,
+          isPast: false
+        }
+      ]
+    };
+
+    await app.confirmAction();
+    expect(app.showError).toHaveBeenCalledWith("Ange användar-ID att boka åt.");
   });
 
   it("kalender- och slot-hjälpfunktioner ger förväntat resultat", () => {

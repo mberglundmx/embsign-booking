@@ -16,6 +16,7 @@ def test_rfid_login_success(client, db_conn, seeded_apartment):
     response = client.post("/rfid-login", json={"uid": "UID123"})
     assert response.status_code == 200
     assert response.json()["booking_url"] == "/booking"
+    assert response.json()["is_admin"] is False
     assert "session" in response.cookies
 
 
@@ -45,6 +46,32 @@ def test_rfid_login_invalid(client):
     assert response.status_code == 401
 
 
+def test_rfid_login_admin_access_group_logs_in_as_admin(client, db_conn):
+    RFID_CACHE["ADMINUID"] = RfidEntry(
+        apartment_id="9-9999",
+        house="9",
+        lgh_internal="9999",
+        skv_lgh="9999",
+        active=True,
+        access_groups=["Styrelse"],
+    )
+
+    response = client.post("/rfid-login", json={"uid": "ADMINUID"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["apartment_id"] == "admin"
+    assert payload["is_admin"] is True
+    session_token = response.cookies.get("session")
+    assert session_token is not None
+    row = db_conn.execute(
+        "SELECT apartment_id, is_admin FROM sessions WHERE token = ?",
+        (session_token,),
+    ).fetchone()
+    assert row is not None
+    assert row["apartment_id"] == "admin"
+    assert row["is_admin"] == 1
+
+
 def test_mobile_login_success(client, seeded_apartment):
     response = client.post(
         "/mobile-login",
@@ -60,6 +87,17 @@ def test_mobile_login_invalid(client, seeded_apartment):
         json={"apartment_id": seeded_apartment, "password": "wrong"},
     )
     assert response.status_code == 401
+
+
+def test_mobile_login_admin_user_success(client):
+    response = client.post(
+        "/mobile-login",
+        json={"apartment_id": "admin", "password": "admin"},
+    )
+    assert response.status_code == 200
+    assert response.json()["apartment_id"] == "admin"
+    assert response.json()["is_admin"] is True
+    assert "session" in response.cookies
 
 
 def test_mobile_password_update_changes_mobile_login(client, db_conn, seeded_apartment):
@@ -348,6 +386,113 @@ def test_admin_calendar_requires_admin(client, db_conn, seeded_apartment, seeded
     response = client.get("/admin/calendar", cookies={"session": admin_token})
     assert response.status_code == 200
     assert "bookings" in response.json()
+
+
+def test_admin_can_create_and_remove_block(client, db_conn, seeded_apartment, seeded_resource):
+    user_token = create_session(db_conn, seeded_apartment, is_admin=False)
+    admin_token = create_session(db_conn, seeded_apartment, is_admin=True)
+    start = datetime(2026, 3, 10, 8, 0, tzinfo=timezone.utc).isoformat()
+    end = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc).isoformat()
+
+    forbidden_response = client.post(
+        "/admin/block",
+        json={
+            "resource_id": seeded_resource,
+            "start_time": start,
+            "end_time": end,
+            "reason": "Service",
+        },
+        cookies={"session": user_token},
+    )
+    assert forbidden_response.status_code == 403
+
+    create_response = client.post(
+        "/admin/block",
+        json={
+            "resource_id": seeded_resource,
+            "start_time": start,
+            "end_time": end,
+            "reason": "Service",
+        },
+        cookies={"session": admin_token},
+    )
+    assert create_response.status_code == 200
+    block_id = create_response.json()["block_id"]
+
+    blocked_booking = client.post(
+        "/book",
+        json={
+            "apartment_id": seeded_apartment,
+            "resource_id": seeded_resource,
+            "start_time": start,
+            "end_time": end,
+            "is_billable": False,
+        },
+        cookies={"session": user_token},
+    )
+    assert blocked_booking.status_code == 409
+
+    remove_response = client.request(
+        "DELETE",
+        "/admin/block",
+        json={"block_id": block_id},
+        cookies={"session": admin_token},
+    )
+    assert remove_response.status_code == 200
+
+    allowed_booking = client.post(
+        "/book",
+        json={
+            "apartment_id": seeded_apartment,
+            "resource_id": seeded_resource,
+            "start_time": start,
+            "end_time": end,
+            "is_billable": False,
+        },
+        cookies={"session": user_token},
+    )
+    assert allowed_booking.status_code == 200
+
+
+def test_admin_bookings_endpoint_includes_other_apartments_and_blocks(
+    client, db_conn, seeded_resource
+):
+    db_conn.execute(
+        "INSERT INTO apartments (id, password_hash, is_active) VALUES (?, ?, 1)",
+        ("B202", "hash"),
+    )
+    db_conn.execute(
+        """
+        INSERT INTO bookings (apartment_id, resource_id, start_time, end_time, is_billable)
+        VALUES (?, ?, ?, ?, 0)
+        """,
+        ("B202", seeded_resource, "2026-03-11T08:00:00+00:00", "2026-03-11T09:00:00+00:00"),
+    )
+    db_conn.execute(
+        """
+        INSERT INTO booking_blocks (resource_id, start_time, end_time, reason, created_by)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            seeded_resource,
+            "2026-03-11T10:00:00+00:00",
+            "2026-03-11T11:00:00+00:00",
+            "Underhåll",
+            "admin",
+        ),
+    )
+    db_conn.commit()
+
+    admin_token = create_session(db_conn, "B202", is_admin=True)
+    response = client.get("/bookings", cookies={"session": admin_token})
+    assert response.status_code == 200
+    entries = response.json()["bookings"]
+    booking_entry = next((item for item in entries if item["entry_type"] == "booking"), None)
+    block_entry = next((item for item in entries if item["entry_type"] == "block"), None)
+    assert booking_entry is not None
+    assert booking_entry["apartment_id"] == "B202"
+    assert block_entry is not None
+    assert block_entry["blocked_reason"] == "Underhåll"
 
 
 class TestParseApartmentName:

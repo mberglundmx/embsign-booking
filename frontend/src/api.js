@@ -77,6 +77,11 @@ export async function getBookings() {
   return data.bookings ?? [];
 }
 
+export async function getAdminCalendar() {
+  const data = await request("/admin/calendar");
+  return data.bookings ?? [];
+}
+
 export async function getSlots(resourceId, date) {
   const params = new URLSearchParams();
   if (resourceId) params.set("resource_id", String(resourceId));
@@ -105,5 +110,19 @@ export async function cancelBooking(bookingId) {
   return request("/cancel", {
     method: "DELETE",
     body: JSON.stringify({ booking_id: bookingId })
+  });
+}
+
+export async function createAdminBlock(payload) {
+  return request("/admin/block", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteAdminBlock(blockId) {
+  return request("/admin/block", {
+    method: "DELETE",
+    body: JSON.stringify({ block_id: blockId })
   });
 }

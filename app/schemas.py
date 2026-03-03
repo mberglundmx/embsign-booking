@@ -31,10 +31,26 @@ class CancelRequest(BaseModel):
 class LoginResponse(BaseModel):
     booking_url: str
     apartment_id: str
+    is_admin: bool = False
 
 
 class BookingResponse(BaseModel):
     booking_id: int
+
+
+class AdminBlockRequest(BaseModel):
+    resource_id: int
+    start_time: str
+    end_time: str
+    reason: Optional[str] = ""
+
+
+class AdminBlockResponse(BaseModel):
+    block_id: int
+
+
+class DeleteBlockRequest(BaseModel):
+    block_id: int
 
 
 class ResourceItem(BaseModel):
@@ -64,6 +80,9 @@ class BookingItem(BaseModel):
     is_billable: bool
     booking_type: str
     price_cents: int
+    apartment_id: Optional[str] = None
+    entry_type: str = "booking"
+    blocked_reason: Optional[str] = None
 
 
 class BookingsResponse(BaseModel):

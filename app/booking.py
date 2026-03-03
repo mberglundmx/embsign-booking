@@ -44,6 +44,14 @@ def _load_intervals(conn, query: str, params: tuple) -> List[tuple[datetime, dat
     return intervals
 
 
+def _load_resource_block_intervals(conn, resource_id: int) -> List[tuple[datetime, datetime]]:
+    return _load_intervals(
+        conn,
+        "SELECT start_time, end_time FROM booking_blocks WHERE resource_id = ?",
+        (resource_id,),
+    )
+
+
 def _has_overlap_in_intervals(
     intervals: List[tuple[datetime, datetime]],
     start_dt: datetime,
@@ -198,6 +206,9 @@ def has_overlap(conn, resource_id: int, apartment_id: str, start: str, end: str)
     )
     if _has_overlap_in_intervals(resource_intervals, start_dt, end_dt):
         return True
+    block_intervals = _load_resource_block_intervals(conn, resource_id)
+    if _has_overlap_in_intervals(block_intervals, start_dt, end_dt):
+        return True
 
     apartment_intervals = _load_intervals(
         conn,
@@ -255,6 +266,16 @@ def list_full_day_availability_range(
         """,
         (resource_id, to_iso(range_end), to_iso(range_start)),
     )
+    block_intervals = _load_intervals(
+        conn,
+        """
+        SELECT start_time, end_time
+        FROM booking_blocks
+        WHERE resource_id = ? AND start_time < ? AND end_time > ?
+        """,
+        (resource_id, to_iso(range_end), to_iso(range_start)),
+    )
+    intervals.extend(block_intervals)
 
     now_utc = _now_utc()
     min_future_days = _normalize_min_future_days(resource["min_future_days"])
@@ -335,6 +356,46 @@ def create_booking(
     return int(cursor.lastrowid)
 
 
+def create_block(
+    conn,
+    resource_id: int,
+    start_time: str,
+    end_time: str,
+    reason: str = "",
+    created_by: str = "admin",
+) -> int:
+    resource = conn.execute(
+        "SELECT id FROM resources WHERE id = ? AND is_active = 1",
+        (resource_id,),
+    ).fetchone()
+    if resource is None:
+        raise PermissionError("resource_not_found")
+    start_dt, end_dt, start_iso, end_iso = _normalize_range(start_time, end_time)
+    existing = _load_intervals(
+        conn,
+        "SELECT start_time, end_time FROM bookings WHERE resource_id = ?",
+        (resource_id,),
+    )
+    existing.extend(_load_resource_block_intervals(conn, resource_id))
+    if _has_overlap_in_intervals(existing, start_dt, end_dt):
+        raise ValueError("overlap")
+    cursor = conn.execute(
+        """
+        INSERT INTO booking_blocks (resource_id, start_time, end_time, reason, created_by)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (resource_id, start_iso, end_iso, reason.strip(), created_by),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def delete_block(conn, block_id: int) -> bool:
+    cursor = conn.execute("DELETE FROM booking_blocks WHERE id = ?", (block_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
 def cancel_booking(conn, booking_id: int, apartment_id: Optional[str], is_admin: bool) -> bool:
     if is_admin:
         cursor = conn.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
@@ -409,6 +470,7 @@ def list_slots(
             "SELECT start_time, end_time FROM bookings WHERE resource_id = ?",
             (rid,),
         )
+        intervals.extend(_load_resource_block_intervals(conn, rid))
 
         if booking_type == "full-day":
             start = to_iso(day_start)
@@ -461,10 +523,17 @@ def admin_calendar(conn) -> List[Dict[str, str]]:
     rows = conn.execute(
         """
         SELECT b.id, b.apartment_id, b.resource_id, b.start_time, b.end_time,
-               b.is_billable, r.name as resource_name
+               b.is_billable, r.name as resource_name, r.booking_type, r.price_cents,
+               'booking' AS entry_type, '' AS blocked_reason
         FROM bookings b
         JOIN resources r ON r.id = b.resource_id
-        ORDER BY b.start_time ASC
+        UNION ALL
+        SELECT bb.id, bb.created_by AS apartment_id, bb.resource_id, bb.start_time, bb.end_time,
+               0 AS is_billable, r.name AS resource_name, r.booking_type, 0 AS price_cents,
+               'block' AS entry_type, bb.reason AS blocked_reason
+        FROM booking_blocks bb
+        JOIN resources r ON r.id = bb.resource_id
+        ORDER BY start_time ASC
         """
     ).fetchall()
     return [dict(row) for row in rows]

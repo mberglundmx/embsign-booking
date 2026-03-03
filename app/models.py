@@ -52,6 +52,22 @@ SCHEMA_STATEMENTS = [
         ON bookings(apartment_id, start_time, end_time);
     """,
     """
+    CREATE TABLE IF NOT EXISTS booking_blocks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        resource_id INTEGER NOT NULL,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT 'admin',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_booking_blocks_resource_time
+        ON booking_blocks(resource_id, start_time, end_time);
+    """,
+    """
     CREATE TABLE IF NOT EXISTS sessions (
         token TEXT PRIMARY KEY,
         apartment_id TEXT NOT NULL,

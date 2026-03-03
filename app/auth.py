@@ -7,12 +7,17 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
-from .config import CSV_URL, GITHUB_TOKEN, SESSION_TTL_SECONDS
+from .config import ADMIN_PASSWORD, ADMIN_USER_ID, CSV_URL, GITHUB_TOKEN, SESSION_TTL_SECONDS
 from .github_content import fetch_text
 
 logger = logging.getLogger(__name__)
 
 _LGH_PATTERN = re.compile(r"(\d+)-\s*LGH\s*(\d+)\s*/\s*(\d+)", re.IGNORECASE)
+_ADMIN_ACCESS_GROUPS = {
+    "full behörighet".casefold(),
+    "styrelse".casefold(),
+    "styrelse utökad".casefold(),
+}
 
 
 @dataclass
@@ -23,6 +28,7 @@ class RfidEntry:
     skv_lgh: str
     active: bool
     access_groups: List[str] = field(default_factory=list)
+    is_admin: bool = False
 
 
 RFID_CACHE: Dict[str, RfidEntry] = {}
@@ -111,6 +117,18 @@ def _build_apartment_id(house: str, skv_lgh: str) -> str:
     return f"{house}-{skv_lgh}"
 
 
+def _normalize_access_group(group: str) -> str:
+    return " ".join(group.split()).casefold()
+
+
+def has_admin_access(access_groups: List[str]) -> bool:
+    return any(_normalize_access_group(group) in _ADMIN_ACCESS_GROUPS for group in access_groups)
+
+
+def is_admin_rfid_entry(entry: RfidEntry) -> bool:
+    return bool(entry.is_admin or has_admin_access(entry.access_groups))
+
+
 def load_rfid_cache() -> None:
     if not CSV_URL:
         logger.warning("RFID CSV_URL not configured; cache not loaded")
@@ -140,21 +158,32 @@ def load_rfid_cache() -> None:
         if not rfid_uid:
             continue
 
+        access_groups = [g.strip() for g in access_groups_raw.split("|") if g.strip()]
+        is_admin = has_admin_access(access_groups)
         parsed = parse_apartment_name(name)
-        if not parsed:
+        if not parsed and not is_admin:
             continue
 
         active = status_str == "0"
-        access_groups = [g.strip() for g in access_groups_raw.split("|") if g.strip()]
-        apartment_id = _build_apartment_id(parsed["house"], parsed["skv_lgh"])
+        if is_admin:
+            apartment_id = ADMIN_USER_ID
+            house = ""
+            lgh_internal = ""
+            skv_lgh = ""
+        else:
+            apartment_id = _build_apartment_id(parsed["house"], parsed["skv_lgh"])
+            house = parsed["house"]
+            lgh_internal = parsed["lgh_internal"]
+            skv_lgh = parsed["skv_lgh"]
 
         cache[rfid_uid] = RfidEntry(
             apartment_id=apartment_id,
-            house=parsed["house"],
-            lgh_internal=parsed["lgh_internal"],
-            skv_lgh=parsed["skv_lgh"],
+            house=house,
+            lgh_internal=lgh_internal,
+            skv_lgh=skv_lgh,
             active=active,
             access_groups=access_groups,
+            is_admin=is_admin,
         )
 
     RFID_CACHE.clear()
@@ -194,6 +223,24 @@ def ensure_apartment(conn, entry: RfidEntry) -> None:
         entry.lgh_internal,
         entry.skv_lgh,
     )
+
+
+def ensure_admin_account(conn) -> None:
+    row = conn.execute("SELECT id FROM apartments WHERE id = ?", (ADMIN_USER_ID,)).fetchone()
+    if row is not None:
+        return
+    conn.execute(
+        """
+        INSERT INTO apartments (id, password_hash, is_active, house, lgh_internal, skv_lgh, access_groups)
+        VALUES (?, ?, 1, '', '', '', 'Admin')
+        """,
+        (
+            ADMIN_USER_ID,
+            hash_password(ADMIN_PASSWORD),
+        ),
+    )
+    conn.commit()
+    logger.info("Auto-created admin account apartment_id=%s", ADMIN_USER_ID)
 
 
 def check_rate_limit() -> None:

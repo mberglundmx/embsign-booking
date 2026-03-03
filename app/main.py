@@ -8,9 +8,11 @@ from .auth import (
     RFID_CACHE,
     check_rate_limit,
     create_session,
+    ensure_admin_account,
     ensure_apartment,
     get_session,
     hash_password,
+    is_admin_rfid_entry,
     load_rfid_cache,
     lookup_rfid,
     verify_password,
@@ -19,18 +21,23 @@ from .booking import (
     admin_calendar,
     can_access_resource,
     cancel_booking,
+    create_block,
     create_booking,
+    delete_block,
     list_full_day_availability_range,
     list_slots,
 )
-from .config import CSV_URL, DATABASE_PATH, FRONTEND_ORIGINS, GITHUB_TOKEN
+from .config import ADMIN_USER_ID, CSV_URL, DATABASE_PATH, FRONTEND_ORIGINS, GITHUB_TOKEN
 from .db import create_connection, get_db, init_db
 from .resource_config import load_booking_objects
 from .schemas import (
+    AdminBlockRequest,
+    AdminBlockResponse,
     BookRequest,
     BookingsResponse,
     BookingResponse,
     CancelRequest,
+    DeleteBlockRequest,
     LoginResponse,
     MobileLoginRequest,
     MobilePasswordUpdateRequest,
@@ -62,6 +69,7 @@ def startup() -> None:
     conn = create_connection(DATABASE_PATH)
     try:
         init_db(conn)
+        ensure_admin_account(conn)
         load_rfid_cache()
         load_booking_objects(conn)
         logger.info(
@@ -91,6 +99,11 @@ def rfid_login(payload: RFIDLoginRequest, response: Response, conn=Depends(get_d
     entry = lookup_rfid(payload.uid)
     if entry is None or not entry.active:
         raise HTTPException(status_code=401, detail="invalid_rfid")
+    if is_admin_rfid_entry(entry):
+        ensure_admin_account(conn)
+        token = create_session(conn, ADMIN_USER_ID, is_admin=True)
+        response.set_cookie("session", token, httponly=True, samesite="none", secure=True)
+        return LoginResponse(booking_url="/booking", apartment_id=ADMIN_USER_ID, is_admin=True)
     ensure_apartment(conn, entry)
     row = conn.execute(
         "SELECT * FROM apartments WHERE id = ? AND is_active = 1",
@@ -100,21 +113,33 @@ def rfid_login(payload: RFIDLoginRequest, response: Response, conn=Depends(get_d
         raise HTTPException(status_code=401, detail="inactive_apartment")
     token = create_session(conn, entry.apartment_id, is_admin=False)
     response.set_cookie("session", token, httponly=True, samesite="none", secure=True)
-    return LoginResponse(booking_url="/booking", apartment_id=entry.apartment_id)
+    return LoginResponse(booking_url="/booking", apartment_id=entry.apartment_id, is_admin=False)
 
 
 @app.post("/mobile-login", response_model=LoginResponse)
 def mobile_login(payload: MobileLoginRequest, response: Response, conn=Depends(get_db)):
     check_rate_limit()
+    apartment_id = payload.apartment_id.strip()
+    if apartment_id.casefold() == ADMIN_USER_ID.casefold():
+        ensure_admin_account(conn)
+        row = conn.execute(
+            "SELECT * FROM apartments WHERE id = ? AND is_active = 1",
+            (ADMIN_USER_ID,),
+        ).fetchone()
+        if row is None or not verify_password(payload.password, row["password_hash"]):
+            raise HTTPException(status_code=401, detail="invalid_credentials")
+        token = create_session(conn, ADMIN_USER_ID, is_admin=True)
+        response.set_cookie("session", token, httponly=True, samesite="none", secure=True)
+        return LoginResponse(booking_url="/booking", apartment_id=ADMIN_USER_ID, is_admin=True)
     row = conn.execute(
         "SELECT * FROM apartments WHERE id = ? AND is_active = 1",
-        (payload.apartment_id,),
+        (apartment_id,),
     ).fetchone()
     if row is None or not verify_password(payload.password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="invalid_credentials")
-    token = create_session(conn, payload.apartment_id, is_admin=False)
+    token = create_session(conn, apartment_id, is_admin=False)
     response.set_cookie("session", token, httponly=True, samesite="none", secure=True)
-    return LoginResponse(booking_url="/booking", apartment_id=payload.apartment_id)
+    return LoginResponse(booking_url="/booking", apartment_id=apartment_id, is_admin=False)
 
 
 @app.post("/mobile-password")
@@ -215,6 +240,8 @@ def list_resources(session=Depends(require_session), conn=Depends(get_db)):
 
 @app.get("/bookings", response_model=BookingsResponse)
 def list_bookings(session=Depends(require_session), conn=Depends(get_db)):
+    if session["is_admin"]:
+        return {"bookings": admin_calendar(conn)}
     rows = conn.execute(
         """
         SELECT b.id, b.resource_id, b.start_time, b.end_time, b.is_billable,
@@ -260,6 +287,41 @@ def cancel(payload: CancelRequest, session=Depends(require_session), conn=Depend
         conn, payload.booking_id, session["apartment_id"], bool(session["is_admin"])
     )
     if not ok:
+        raise HTTPException(status_code=404, detail="not_found")
+    return JSONResponse({"status": "ok"})
+
+
+@app.post("/admin/block", response_model=AdminBlockResponse)
+def block_time(payload: AdminBlockRequest, session=Depends(require_session), conn=Depends(get_db)):
+    if not session["is_admin"]:
+        raise HTTPException(status_code=403, detail="forbidden")
+    try:
+        block_id = create_block(
+            conn,
+            payload.resource_id,
+            payload.start_time,
+            payload.end_time,
+            payload.reason,
+            created_by=session["apartment_id"],
+        )
+    except PermissionError:
+        raise HTTPException(status_code=404, detail="resource_not_found")
+    except ValueError as exc:
+        detail = str(exc)
+        if detail == "invalid_time_range":
+            raise HTTPException(status_code=400, detail=detail)
+        raise HTTPException(status_code=409, detail=detail)
+    return AdminBlockResponse(block_id=block_id)
+
+
+@app.delete("/admin/block")
+def unblock_time(
+    payload: DeleteBlockRequest, session=Depends(require_session), conn=Depends(get_db)
+):
+    if not session["is_admin"]:
+        raise HTTPException(status_code=403, detail="forbidden")
+    deleted = delete_block(conn, payload.block_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="not_found")
     return JSONResponse({"status": "ok"})
 
