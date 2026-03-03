@@ -812,6 +812,53 @@ describe("bookingApp", () => {
     );
   });
 
+  it("confirmAction visar tydlig orsak vid max antal bokningar", async () => {
+    const maxReached = createApp({
+      apiOverrides: {
+        bookSlot: vi.fn().mockRejectedValue(new Error("max_bookings_reached"))
+      }
+    });
+    maxReached.app.showError = vi.fn();
+    maxReached.app.userId = "1-1201";
+    maxReached.app.resources = [
+      {
+        id: 1,
+        name: "Tvättstuga 1",
+        bookingType: "time-slot",
+        maxBookings: 2,
+        price: 0
+      }
+    ];
+    maxReached.app.slotsByDate = {
+      "2026-03-08": [
+        {
+          id: "08:00-09:00",
+          startTime: "2026-03-08T08:00:00+00:00",
+          endTime: "2026-03-08T09:00:00+00:00",
+          isBooked: false,
+          isPast: false
+        }
+      ]
+    };
+    maxReached.app.confirm = {
+      open: true,
+      action: "time-slot",
+      payload: {
+        resourceId: 1,
+        resourceName: "Tvättstuga 1",
+        date: "2026-03-08",
+        slotId: "08:00-09:00"
+      },
+      price: 0
+    };
+
+    await maxReached.app.confirmAction();
+
+    expect(maxReached.app.showError).toHaveBeenCalledWith(
+      "Du kan max ha 2 aktiva bokningar samtidigt för Tvättstuga 1."
+    );
+  });
+
   it("admin kan blockera tid och ta bort blockering", async () => {
     const { app, api } = createApp();
     app.isAuthenticated = true;

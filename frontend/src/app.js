@@ -107,6 +107,11 @@ function formatDateLong(dateString) {
   }).format(date);
 }
 
+function formatCompactDate(dateString) {
+  const date = parseLocalDateString(dateString);
+  return `${date.getDate()}/${date.getMonth() + 1}`;
+}
+
 function formatTimeRange(startIso, endIso) {
   return formatWallClockRange(startIso, endIso);
 }
@@ -151,7 +156,11 @@ function normalizeResources(resources) {
       typeof resource.price_cents === "number"
         ? Math.round(resource.price_cents / 100)
         : (resource.price ?? 0),
-    isBillable: resource.is_billable ?? resource.isBillable ?? false
+    isBillable: resource.is_billable ?? resource.isBillable ?? false,
+    maxBookings:
+      typeof resource.max_bookings === "number"
+        ? resource.max_bookings
+        : (resource.maxBookings ?? 2)
   }));
 }
 
@@ -455,7 +464,7 @@ export function createBookingApp(options = {}) {
       const dayIndex = date.getDay();
       return {
         weekday: new Intl.DateTimeFormat("sv-SE", { weekday: "long" }).format(date),
-        dateLabel: new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "long" }).format(date),
+        dateLabel: formatCompactDate(dateString),
         isSaturday: dayIndex === 6,
         isSunday: dayIndex === 0
       };
@@ -885,6 +894,51 @@ export function createBookingApp(options = {}) {
       this.confirm.open = false;
     },
 
+    getActionErrorMessage(error, action, payload) {
+      const detail = String(error?.message ?? "").trim();
+      const resource = this.resources.find((item) => item.id === payload?.resourceId);
+
+      if (detail === "max_bookings_reached") {
+        if (typeof resource?.maxBookings === "number") {
+          return `Du kan max ha ${resource.maxBookings} aktiva bokningar samtidigt för ${resource.name}.`;
+        }
+        return "Du har nått max antal aktiva bokningar för det här bokningsobjektet.";
+      }
+
+      if (detail === "outside_booking_window") {
+        const minDays = resource?.minAdvanceDays;
+        const maxDays = resource?.maxAdvanceDays;
+        if (typeof minDays === "number" && typeof maxDays === "number") {
+          const maxBookableDay = Math.max(minDays, maxDays - 1);
+          if (minDays > 0) {
+            return `Det går att boka ${resource?.name ?? "objektet"} mellan ${minDays} och ${maxBookableDay} dagar framåt.`;
+          }
+          return `Det går att boka ${resource?.name ?? "objektet"} upp till ${maxBookableDay} dagar framåt.`;
+        }
+        return "Vald tid ligger utanför tillåtet bokningsfönster.";
+      }
+
+      if (detail === "overlap") {
+        return action === "cancel"
+          ? "Bokningen kunde inte avbokas eftersom den redan är ändrad."
+          : "Tiden är inte ledig längre eller krockar med en annan bokning.";
+      }
+
+      if (detail === "forbidden_resource") {
+        return "Du har inte behörighet att boka det här objektet.";
+      }
+
+      if (detail === "forbidden") {
+        return "Du har inte behörighet att utföra den här åtgärden.";
+      }
+
+      if (detail === "invalid_time_range") {
+        return "Start- och sluttid är ogiltig för vald åtgärd.";
+      }
+
+      return "Kunde inte slutföra åtgärden.";
+    },
+
     async confirmAction() {
       if (!this.confirm.open) return;
       const { action, payload } = this.confirm;
@@ -965,14 +1019,14 @@ export function createBookingApp(options = {}) {
           this.showError("Ange användar-ID att boka åt.");
           return;
         }
-        this.showError("Kunde inte slutföra åtgärden.");
+        this.showError(this.getActionErrorMessage(error, action, payload));
       } finally {
         this.loading = false;
       }
     },
 
     getDayLabel(dateString) {
-      return this.formatDay(dateString);
+      return formatCompactDate(dateString);
     },
 
     getFullDayCalendar() {

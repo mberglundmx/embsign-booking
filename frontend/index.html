@@ -18,7 +18,7 @@
         ? 'min-h-screen max-w-none px-0 py-0'
         : !isAuthenticated
           ? 'min-h-screen max-w-md justify-center px-4 py-10 sm:px-6'
-          : 'max-w-6xl gap-8 px-6 py-8'"
+          : 'max-w-6xl gap-5 px-4 py-6 sm:px-6'"
     >
       <section
         class="flex flex-col"
@@ -217,183 +217,13 @@
               </button>
             </div>
           </div>
-        </div>
 
-        <div class="flex flex-col gap-6" x-show="isScheduleStep" x-transition data-testid="schedule-view">
-          <div class="card">
-            <div class="text-center">
-              <p
-                class="text-xl font-semibold text-slate-900 sm:text-2xl"
-                data-testid="selected-booking-object-title"
-              >
-                Bokningsobjekt:
-                <span class="text-brand-700" x-text="selectedResource?.name ?? 'Ej valt'"></span>
-              </p>
-            </div>
-
-            <template x-if="availabilityLoading">
-              <div
-                class="mt-6 flex flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 py-10"
-                data-testid="availability-loading"
-              >
-                <div class="h-9 w-9 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600"></div>
-                <p class="text-sm font-medium text-slate-600">Laddar tillgänglighet...</p>
-              </div>
-            </template>
-
-            <template x-if="!availabilityLoading && selectedResource?.bookingType === 'full-day'">
-              <div class="mt-4 flex flex-col gap-3 overflow-x-auto">
-                <div class="flex items-center justify-center gap-4">
-                  <button
-                    class="btn w-12 justify-self-center bg-slate-100 text-slate-700 hover:bg-slate-200"
-                    @click="navigateFullDayMonths(-1)"
-                    :disabled="!canNavigateFullDayBack"
-                    aria-label="Föregående månad"
-                  >
-                    &lt;
-                  </button>
-                  <p class="text-lg font-semibold capitalize" x-text="fullDayMonthLabel"></p>
-                  <button
-                    class="btn w-12 justify-self-center bg-slate-100 text-slate-700 hover:bg-slate-200"
-                    @click="navigateFullDayMonths(1)"
-                    :disabled="!canNavigateFullDayForward"
-                    aria-label="Nästa månad"
-                  >
-                    &gt;
-                  </button>
-                </div>
-                <div class="grid min-w-[720px] grid-cols-7 gap-2 text-center text-xs font-semibold text-slate-500">
-                  <template x-for="label in weekdayLabels" :key="label">
-                    <div class="py-1" x-text="label"></div>
-                  </template>
-                </div>
-                <div class="grid min-w-[720px] grid-cols-7 gap-2">
-                  <template x-for="(day, index) in getFullDayCalendar()" :key="day.date ?? `pad-${index}`">
-                    <div class="rounded-2xl">
-                      <template x-if="!day.isPadding">
-                        <div class="flex flex-col gap-1">
-                          <button
-                            class="w-full rounded-xl border px-3 py-3 text-left text-sm font-semibold transition"
-                            :class="getFullDayStatus(day.date) === 'past'
-                              ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-500'
-                              : getFullDayStatus(day.date) === 'mine'
-                                ? 'cursor-not-allowed border-amber-200 bg-amber-50 text-amber-700'
-                                : getFullDayStatus(day.date) === 'booked'
-                                  ? 'cursor-not-allowed border-rose-200 bg-rose-50 text-rose-700'
-                                  : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
-                            :disabled="getFullDayStatus(day.date) !== 'free'"
-                            @click="openConfirmBooking({ type: 'full-day', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day.date })"
-                            data-testid="book-day"
-                          >
-                            <p class="text-sm font-semibold" x-text="day.label"></p>
-                            <p class="mt-2 text-sm font-semibold" x-text="getStatusLabel(getFullDayStatus(day.date))"></p>
-                            <p class="mt-1 text-xs" x-show="getSelectedResourcePrice() > 0">
-                              Kostnad: <span x-text="getSelectedResourcePrice()"></span> kr
-                            </p>
-                          </button>
-                          <button
-                            class="btn btn-secondary w-full px-2 py-2 text-xs"
-                            x-show="isAdminMode"
-                            :disabled="getFullDayStatus(day.date) !== 'free'"
-                            @click="openConfirmBlock({ type: 'block-full-day', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day.date })"
-                            data-testid="block-day"
-                          >
-                            Blockera
-                          </button>
-                        </div>
-                      </template>
-                    </div>
-                  </template>
-                </div>
-              </div>
-            </template>
-
-            <template x-if="!availabilityLoading && selectedResource?.bookingType === 'time-slot'">
-              <div class="mt-4 flex flex-col gap-3 overflow-x-auto">
-                <div class="flex items-center justify-center gap-4">
-                  <button
-                    class="btn w-12 justify-self-center bg-slate-100 text-slate-700 hover:bg-slate-200"
-                    @click="navigateTimeSlots(-1)"
-                    :disabled="!canNavigateTimeSlotsBack"
-                    aria-label="Föregående vecka"
-                  >
-                    &lt;
-                  </button>
-                  <p class="text-lg font-semibold text-slate-900">
-                    Vecka <span x-text="timeSlotWeekNumber ?? '-'"></span>
-                  </p>
-                  <button
-                    class="btn w-12 justify-self-center bg-slate-100 text-slate-700 hover:bg-slate-200"
-                    @click="navigateTimeSlots(1)"
-                    :disabled="!canNavigateTimeSlotsForward"
-                    aria-label="Nästa vecka"
-                  >
-                    &gt;
-                  </button>
-                </div>
-                <div class="grid min-w-[720px] grid-cols-7 gap-2 text-center text-xs font-semibold text-slate-600">
-                  <template x-for="day in timeSlotDays" :key="day">
-                    <div
-                      class="rounded-xl border border-slate-200 px-2 py-2 text-sm text-slate-700"
-                      :class="getDayHeaderParts(day).isSunday ? 'bg-slate-200' : getDayHeaderParts(day).isSaturday ? 'bg-slate-100' : 'bg-white'"
-                    >
-                      <span class="block text-sm font-semibold" x-text="getDayHeaderParts(day).weekday"></span>
-                      <span class="block text-sm font-semibold" x-text="getDayHeaderParts(day).dateLabel"></span>
-                    </div>
-                  </template>
-                </div>
-                <p
-                  class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
-                  x-show="getTimeSlotLabels().length === 0"
-                >
-                  Inga tider tillgängliga för vald vecka.
-                </p>
-                <template x-for="slot in getTimeSlotLabels()" :key="slot.id">
-                  <div class="grid min-w-[720px] grid-cols-7 gap-2">
-                    <template x-for="day in timeSlotDays" :key="`${day}-${slot.id}`">
-                      <div class="flex flex-col gap-1">
-                        <button
-                          class="w-full rounded-xl border px-3 py-3 text-left text-sm font-semibold transition"
-                          :class="getTimeSlotStatus(day, slot.id) === 'past'
-                            ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-500'
-                            : getTimeSlotStatus(day, slot.id) === 'mine'
-                              ? 'cursor-not-allowed border-amber-200 bg-amber-50 text-amber-700'
-                              : getTimeSlotStatus(day, slot.id) === 'booked'
-                              ? 'border-rose-200 bg-rose-50 text-rose-700'
-                              : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
-                          :disabled="isTimeSlotDisabled(day, slot.id)"
-                          @click="openConfirmBooking({ type: 'time-slot', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day, slotId: slot.id, slotLabel: slot.label })"
-                          data-testid="book-slot"
-                        >
-                          <p class="text-sm font-semibold" x-text="getCompactSlotLabel(slot.label)"></p>
-                          <p class="mt-2 text-sm font-semibold" x-text="getStatusLabel(getTimeSlotStatus(day, slot.id))"></p>
-                          <p class="mt-1 text-xs" x-show="getSelectedResourcePrice() > 0">
-                            Kostnad: <span x-text="getSelectedResourcePrice()"></span> kr
-                          </p>
-                        </button>
-                        <button
-                          class="btn btn-secondary w-full px-2 py-2 text-xs"
-                          x-show="isAdminMode"
-                          :disabled="getTimeSlotStatus(day, slot.id) !== 'free'"
-                          @click="openConfirmBlock({ type: 'block-time-slot', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day, slotId: slot.id, slotLabel: slot.label })"
-                          data-testid="block-slot"
-                        >
-                          Blockera
-                        </button>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-              </div>
-            </template>
-          </div>
-
-          <details class="card" data-testid="booking-list">
-            <summary
-              class="cursor-pointer text-lg font-semibold text-slate-900"
+          <div class="card card-compact" data-testid="booking-list">
+            <p
+              class="card-title text-base"
               x-text="isAdminMode ? 'Bokningar och blockeringar' : 'Mina bokningar'"
-            ></summary>
-            <div class="mt-4 space-y-3" x-show="bookings.length">
+            ></p>
+            <div class="mt-3 space-y-3" x-show="bookings.length">
               <template x-for="booking in bookings" :key="`${booking.entryType}-${booking.id}`">
                 <div
                   class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3"
@@ -423,10 +253,198 @@
                 </div>
               </template>
             </div>
-            <p class="mt-4 text-sm text-slate-500" x-show="!bookings.length">
+            <p class="mt-3 text-sm text-slate-500" x-show="!bookings.length">
               <span x-text="isAdminMode ? 'Inga bokningar eller blockeringar ännu.' : 'Inga bokningar ännu.'"></span>
             </p>
-          </details>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-4" x-show="isScheduleStep" x-transition data-testid="schedule-view">
+          <div class="card card-compact">
+            <div class="text-center">
+              <p
+                class="text-xl font-semibold text-slate-900 sm:text-2xl"
+                data-testid="selected-booking-object-title"
+              >
+                Bokningsobjekt:
+                <span class="text-brand-700" x-text="selectedResource?.name ?? 'Ej valt'"></span>
+              </p>
+            </div>
+
+            <template x-if="availabilityLoading">
+              <div
+                class="mt-4 flex flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 py-8"
+                data-testid="availability-loading"
+              >
+                <div class="h-9 w-9 animate-spin rounded-full border-4 border-slate-200 border-t-brand-600"></div>
+                <p class="text-sm font-medium text-slate-600">Laddar tillgänglighet...</p>
+              </div>
+            </template>
+
+            <template x-if="!availabilityLoading && selectedResource?.bookingType === 'full-day'">
+              <div class="mt-3 flex flex-col gap-2 overflow-x-auto">
+                <div class="flex items-center justify-center gap-3">
+                  <button
+                    class="btn w-10 justify-self-center bg-slate-100 px-0 py-2 text-base text-slate-700 hover:bg-slate-200"
+                    @click="navigateFullDayMonths(-1)"
+                    :disabled="!canNavigateFullDayBack"
+                    aria-label="Föregående månad"
+                  >
+                    &lt;
+                  </button>
+                  <p class="text-base font-semibold capitalize" x-text="fullDayMonthLabel"></p>
+                  <button
+                    class="btn w-10 justify-self-center bg-slate-100 px-0 py-2 text-base text-slate-700 hover:bg-slate-200"
+                    @click="navigateFullDayMonths(1)"
+                    :disabled="!canNavigateFullDayForward"
+                    aria-label="Nästa månad"
+                  >
+                    &gt;
+                  </button>
+                </div>
+                <div class="grid min-w-[680px] grid-cols-7 gap-1.5 text-center text-xs font-semibold text-slate-500">
+                  <template x-for="label in weekdayLabels" :key="label">
+                    <div class="py-0.5" x-text="label"></div>
+                  </template>
+                </div>
+                <div class="grid min-w-[680px] grid-cols-7 gap-1.5">
+                  <template x-for="(day, index) in getFullDayCalendar()" :key="day.date ?? `pad-${index}`">
+                    <div class="rounded-2xl">
+                      <template x-if="!day.isPadding">
+                        <div class="flex flex-col gap-1">
+                          <button
+                            class="flex min-h-[5.9rem] w-full flex-col items-center justify-center rounded-xl border px-2 py-2 text-center text-sm font-semibold leading-tight transition"
+                            :class="getFullDayStatus(day.date) === 'past'
+                              ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-500'
+                              : getFullDayStatus(day.date) === 'mine'
+                                ? 'cursor-not-allowed border-amber-200 bg-amber-50 text-amber-700'
+                                : getFullDayStatus(day.date) === 'booked'
+                                  ? 'cursor-not-allowed border-rose-200 bg-rose-50 text-rose-700'
+                                  : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
+                            :disabled="getFullDayStatus(day.date) !== 'free'"
+                            @click="openConfirmBooking({ type: 'full-day', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day.date })"
+                            data-testid="book-day"
+                          >
+                            <p class="text-lg font-semibold leading-none" x-text="day.label"></p>
+                            <template x-if="getFullDayStatus(day.date) === 'past'">
+                              <p class="mt-1 text-2xl font-bold leading-none">X</p>
+                            </template>
+                            <template x-if="getFullDayStatus(day.date) !== 'past'">
+                              <p
+                                class="mt-1 text-sm font-semibold"
+                                x-text="getStatusLabel(getFullDayStatus(day.date))"
+                              ></p>
+                            </template>
+                            <p class="mt-0.5 text-xs" x-show="getSelectedResourcePrice() > 0">
+                              Kostnad: <span x-text="getSelectedResourcePrice()"></span> kr
+                            </p>
+                          </button>
+                          <button
+                            class="btn btn-secondary w-full px-2 py-1.5 text-xs"
+                            x-show="isAdminMode"
+                            :disabled="getFullDayStatus(day.date) !== 'free'"
+                            @click="openConfirmBlock({ type: 'block-full-day', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day.date })"
+                            data-testid="block-day"
+                          >
+                            Blockera
+                          </button>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+
+            <template x-if="!availabilityLoading && selectedResource?.bookingType === 'time-slot'">
+              <div class="mt-3 flex flex-col gap-2 overflow-x-auto">
+                <div class="flex items-center justify-center gap-3">
+                  <button
+                    class="btn w-10 justify-self-center bg-slate-100 px-0 py-2 text-base text-slate-700 hover:bg-slate-200"
+                    @click="navigateTimeSlots(-1)"
+                    :disabled="!canNavigateTimeSlotsBack"
+                    aria-label="Föregående vecka"
+                  >
+                    &lt;
+                  </button>
+                  <p class="text-base font-semibold text-slate-900">
+                    Vecka <span x-text="timeSlotWeekNumber ?? '-'"></span>
+                  </p>
+                  <button
+                    class="btn w-10 justify-self-center bg-slate-100 px-0 py-2 text-base text-slate-700 hover:bg-slate-200"
+                    @click="navigateTimeSlots(1)"
+                    :disabled="!canNavigateTimeSlotsForward"
+                    aria-label="Nästa vecka"
+                  >
+                    &gt;
+                  </button>
+                </div>
+                <div class="grid min-w-[680px] grid-cols-7 gap-1.5 text-center text-xs font-semibold text-slate-600">
+                  <template x-for="day in timeSlotDays" :key="day">
+                    <div
+                      class="rounded-lg border border-slate-200 px-1.5 py-1 text-sm text-slate-700"
+                      :class="getDayHeaderParts(day).isSunday ? 'bg-slate-200' : getDayHeaderParts(day).isSaturday ? 'bg-slate-100' : 'bg-white'"
+                    >
+                      <span
+                        class="block whitespace-nowrap text-xs font-semibold capitalize leading-none"
+                        x-text="getDayHeaderParts(day).weekday + ' ' + getDayHeaderParts(day).dateLabel"
+                      ></span>
+                    </div>
+                  </template>
+                </div>
+                <p
+                  class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600"
+                  x-show="getTimeSlotLabels().length === 0"
+                >
+                  Inga tider tillgängliga för vald vecka.
+                </p>
+                <template x-for="slot in getTimeSlotLabels()" :key="slot.id">
+                  <div class="grid min-w-[680px] grid-cols-7 gap-1.5">
+                    <template x-for="day in timeSlotDays" :key="`${day}-${slot.id}`">
+                      <div class="flex flex-col gap-1">
+                        <button
+                          class="flex min-h-[5.2rem] w-full flex-col items-center justify-center rounded-xl border px-2 py-2 text-center text-sm font-semibold leading-tight transition"
+                          :class="getTimeSlotStatus(day, slot.id) === 'past'
+                            ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-500'
+                            : getTimeSlotStatus(day, slot.id) === 'mine'
+                              ? 'cursor-not-allowed border-amber-200 bg-amber-50 text-amber-700'
+                              : getTimeSlotStatus(day, slot.id) === 'booked'
+                              ? 'border-rose-200 bg-rose-50 text-rose-700'
+                              : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'"
+                          :disabled="isTimeSlotDisabled(day, slot.id)"
+                          @click="openConfirmBooking({ type: 'time-slot', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day, slotId: slot.id, slotLabel: slot.label })"
+                          data-testid="book-slot"
+                        >
+                          <p class="text-lg font-semibold leading-none" x-text="getCompactSlotLabel(slot.label)"></p>
+                          <template x-if="getTimeSlotStatus(day, slot.id) === 'past'">
+                            <p class="mt-1 text-2xl font-bold leading-none">X</p>
+                          </template>
+                          <template x-if="getTimeSlotStatus(day, slot.id) !== 'past'">
+                            <p
+                              class="mt-1 text-sm font-semibold"
+                              x-text="getStatusLabel(getTimeSlotStatus(day, slot.id))"
+                            ></p>
+                          </template>
+                          <p class="mt-0.5 text-xs" x-show="getSelectedResourcePrice() > 0">
+                            Kostnad: <span x-text="getSelectedResourcePrice()"></span> kr
+                          </p>
+                        </button>
+                        <button
+                          class="btn btn-secondary w-full px-2 py-1.5 text-xs"
+                          x-show="isAdminMode"
+                          :disabled="getTimeSlotStatus(day, slot.id) !== 'free'"
+                          @click="openConfirmBlock({ type: 'block-time-slot', resourceId: selectedResourceId, resourceName: selectedResource?.name, date: day, slotId: slot.id, slotLabel: slot.label })"
+                          data-testid="block-slot"
+                        >
+                          Blockera
+                        </button>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
         </div>
       </section>
     </main>
