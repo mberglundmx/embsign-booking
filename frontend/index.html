@@ -142,26 +142,28 @@
         <div class="flex flex-col gap-4" x-show="isSetupStep" x-transition data-testid="booking-setup">
           <div class="card card-compact" data-testid="resource-picker">
             <p class="card-title text-base">Välj bokningsobjekt</p>
-            <p class="text-xs text-slate-500">Tryck på ett objekt för att se bokningstider.</p>
-            <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <p class="text-sm text-slate-600">Tryck på ett objekt för att öppna bokningstiderna.</p>
+            <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <template x-for="resource in resources" :key="resource.id">
                 <button
-                  class="rounded-xl border px-3 py-2 text-left text-sm transition"
-                  :class="resource.id === selectedResourceId ? 'border-brand-600 bg-brand-50' : 'border-slate-200 bg-white hover:border-brand-300'"
+                  class="group flex min-h-[7rem] flex-col justify-between rounded-2xl border-2 px-4 py-4 text-left transition"
+                  :class="resource.id === selectedResourceId
+                    ? 'border-brand-600 bg-brand-50 ring-2 ring-brand-100'
+                    : 'border-slate-200 bg-white hover:border-brand-400 hover:bg-brand-50/40'"
                   @click="selectResource(resource.id)"
                   data-testid="resource-card"
                 >
-                  <p class="font-semibold" x-text="resource.name"></p>
-                  <p class="text-xs text-slate-500" x-show="resource.price > 0">
+                  <p class="text-base font-semibold text-slate-900" x-text="resource.name"></p>
+                  <p class="mt-1 text-sm text-slate-600" x-show="resource.price > 0">
                     Debitering: <span x-text="resource.price"></span> kr
                   </p>
-                  <p class="text-xs text-slate-500" x-show="isNextAvailabilityLoading(resource.id)">
+                  <p class="mt-1 text-sm text-slate-600" x-show="isNextAvailabilityLoading(resource.id)">
                     Söker nästa lediga tid...
                   </p>
-                  <p class="text-xs text-slate-500" x-show="getNextAvailabilityLabel(resource.id)">
+                  <p class="mt-1 text-sm text-slate-600" x-show="getNextAvailabilityLabel(resource.id)">
                     Nästa lediga: <span x-text="getNextAvailabilityLabel(resource.id)"></span>
                   </p>
-                  <p class="text-xs text-slate-500" x-show="hasNoNextAvailability(resource.id)">
+                  <p class="mt-1 text-sm text-slate-600" x-show="hasNoNextAvailability(resource.id)">
                     Ingen ledig tid i bokningsperioden.
                   </p>
                 </button>
