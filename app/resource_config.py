@@ -67,24 +67,48 @@ def _to_amount(value: Any) -> float | None:
 
 
 def _price_cents_from_cost(cost: Any) -> int:
+    weekday_cents, weekend_cents = _price_cents_by_day_from_cost(cost)
+    return weekday_cents if weekday_cents > 0 else weekend_cents
+
+
+def _price_cents_by_day_from_cost(cost: Any) -> tuple[int, int]:
     amount: float | None = None
+    weekday_amount: float | None = None
+    weekend_amount: float | None = None
     if isinstance(cost, dict):
-        preferred_keys = ("weekday", "vardag", "default", "weekend", "helg")
-        for key in preferred_keys:
-            amount = _to_amount(cost.get(key))
-            if amount is not None:
+        for key in ("weekday", "vardag", "default"):
+            weekday_amount = _to_amount(cost.get(key))
+            if weekday_amount is not None:
                 break
-        if amount is None:
+        for key in ("weekend", "helg"):
+            weekend_amount = _to_amount(cost.get(key))
+            if weekend_amount is not None:
+                break
+        if weekday_amount is None and weekend_amount is None:
             for value in cost.values():
                 amount = _to_amount(value)
                 if amount is not None:
+                    weekday_amount = amount
+                    weekend_amount = amount
                     break
+        elif weekday_amount is None and weekend_amount is not None:
+            weekday_amount = weekend_amount
+        elif weekend_amount is None and weekday_amount is not None:
+            weekend_amount = weekday_amount
     else:
         amount = _to_amount(cost)
+        weekday_amount = amount
+        weekend_amount = amount
 
-    if amount is None or amount <= 0:
-        return 0
-    return int(round(amount * 100))
+    if weekday_amount is None or weekday_amount <= 0:
+        weekday_cents = 0
+    else:
+        weekday_cents = int(round(weekday_amount * 100))
+    if weekend_amount is None or weekend_amount <= 0:
+        weekend_cents = 0
+    else:
+        weekend_cents = int(round(weekend_amount * 100))
+    return weekday_cents, weekend_cents
 
 
 def _to_positive_int(value: Any, default: int) -> int:
@@ -142,6 +166,12 @@ def _hour_in_range(value: Any, default: int, *, min_value: int, max_value: int) 
     if hour < min_value or hour > max_value:
         return default
     return hour
+
+
+def _normalize_category(raw: Any) -> str:
+    if raw is None:
+        return ""
+    return str(raw).strip()
 
 
 def _to_string_list(value: Any) -> list[str]:
@@ -233,8 +263,10 @@ def load_booking_objects(conn, config_url: str | None = None) -> int:
             continue
 
         booking_type = _map_booking_type(obj.get("type"))
-        price_cents = _price_cents_from_cost(obj.get("cost"))
-        is_billable = 1 if price_cents > 0 else 0
+        price_weekday_cents, price_weekend_cents = _price_cents_by_day_from_cost(obj.get("cost"))
+        price_cents = price_weekday_cents if price_weekday_cents > 0 else price_weekend_cents
+        is_billable = 1 if price_weekday_cents > 0 or price_weekend_cents > 0 else 0
+        category = _normalize_category(obj.get("category"))
         slot_duration_minutes = _slot_duration_minutes(obj.get("time"))
         slot_start_hour = _hour_in_range(obj.get("start_time"), 6, min_value=0, max_value=23)
         slot_end_hour = _hour_in_range(obj.get("end_time"), 22, min_value=1, max_value=24)
@@ -254,6 +286,7 @@ def load_booking_objects(conn, config_url: str | None = None) -> int:
             INSERT INTO resources (
                 name,
                 booking_type,
+                category,
                 slot_duration_minutes,
                 slot_start_hour,
                 slot_end_hour,
@@ -263,14 +296,17 @@ def load_booking_objects(conn, config_url: str | None = None) -> int:
                 allow_houses,
                 deny_apartment_ids,
                 is_active,
+                price_weekday_cents,
+                price_weekend_cents,
                 price_cents,
                 is_billable
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
             """,
             (
                 name,
                 booking_type,
+                category,
                 slot_duration_minutes,
                 slot_start_hour,
                 slot_end_hour,
@@ -279,6 +315,8 @@ def load_booking_objects(conn, config_url: str | None = None) -> int:
                 max_bookings,
                 _encode_rule_values(allow_houses),
                 _encode_rule_values(deny_apartments),
+                price_weekday_cents,
+                price_weekend_cents,
                 price_cents,
                 is_billable,
             ),

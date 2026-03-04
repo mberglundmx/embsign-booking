@@ -141,6 +141,7 @@ const CONFIGURED_FRONTEND_ORIGINS_HOSTNAME = getHostnameFromFrontendOrigins(RAW_
 
 function normalizeResources(resources) {
   return resources.map((resource) => ({
+    category: String(resource.category ?? "").trim(),
     id: resource.id,
     name: resource.name,
     bookingType: resource.booking_type ?? resource.bookingType ?? "time-slot",
@@ -152,10 +153,26 @@ function normalizeResources(resources) {
       typeof resource.min_future_days === "number"
         ? resource.min_future_days
         : (resource.minAdvanceDays ?? 0),
+    priceWeekday:
+      typeof resource.price_weekday_cents === "number"
+        ? Math.round(resource.price_weekday_cents / 100)
+        : (typeof resource.price_cents === "number"
+            ? Math.round(resource.price_cents / 100)
+            : (resource.price ?? 0)),
+    priceWeekend:
+      typeof resource.price_weekend_cents === "number"
+        ? Math.round(resource.price_weekend_cents / 100)
+        : (typeof resource.price_weekday_cents === "number"
+            ? Math.round(resource.price_weekday_cents / 100)
+            : (typeof resource.price_cents === "number"
+                ? Math.round(resource.price_cents / 100)
+                : (resource.price ?? 0))),
     price:
-      typeof resource.price_cents === "number"
-        ? Math.round(resource.price_cents / 100)
-        : (resource.price ?? 0),
+      typeof resource.price_weekday_cents === "number"
+        ? Math.round(resource.price_weekday_cents / 100)
+        : (typeof resource.price_cents === "number"
+            ? Math.round(resource.price_cents / 100)
+            : (resource.price ?? 0)),
     isBillable: resource.is_billable ?? resource.isBillable ?? false,
     maxBookings:
       typeof resource.max_bookings === "number"
@@ -837,7 +854,7 @@ export function createBookingApp(options = {}) {
 
     openConfirmBooking(payload) {
       const resource = this.resources.find((item) => item.id === payload.resourceId);
-      const price = resource?.price ?? 0;
+      const price = this.getResourcePriceForDate(resource, payload.date);
       const isFullDay = payload.type === "full-day";
       const targetApartmentId = this.getBookingApartmentId();
       const targetLabel = this.isAdmin ? ` åt ${targetApartmentId || "vald användare"}` : "";
@@ -1060,9 +1077,41 @@ export function createBookingApp(options = {}) {
     },
 
     getSelectedResourcePrice() {
-      return this.selectedResource?.isBillable && this.selectedResource?.price > 0
-        ? this.selectedResource.price
-        : 0;
+      return this.getResourcePriceForDate(this.selectedResource);
+    },
+
+    getSelectedResourcePriceForDate(dateString) {
+      return this.getResourcePriceForDate(this.selectedResource, dateString);
+    },
+
+    getResourcePriceForDate(resource, dateString = "") {
+      const weekdayPrice = Number(resource.priceWeekday ?? resource.price ?? 0);
+      const weekendPrice = Number(resource.priceWeekend ?? weekdayPrice);
+      const hasBillableFlag =
+        resource?.isBillable ?? (weekdayPrice > 0 || weekendPrice > 0 || Number(resource.price ?? 0) > 0);
+      if (!hasBillableFlag) return 0;
+      if (!dateString) {
+        return weekdayPrice > 0 ? weekdayPrice : 0;
+      }
+      const date = parseLocalDateString(dateString);
+      const day = date.getDay();
+      const isWeekend = day === 0 || day === 6;
+      const candidatePrice = isWeekend ? weekendPrice : weekdayPrice;
+      if (candidatePrice > 0) return candidatePrice;
+      return weekdayPrice > 0 ? weekdayPrice : 0;
+    },
+
+    getResourcePriceLabel(resource) {
+      const weekdayPrice = Number(resource.priceWeekday ?? resource.price ?? 0);
+      const weekendPrice = Number(resource.priceWeekend ?? weekdayPrice);
+      const hasBillableFlag =
+        resource?.isBillable ?? (weekdayPrice > 0 || weekendPrice > 0 || Number(resource.price ?? 0) > 0);
+      if (!hasBillableFlag) return "";
+      if (weekdayPrice <= 0 && weekendPrice <= 0) return "";
+      if (weekdayPrice === weekendPrice) {
+        return `Debitering: ${weekdayPrice} kr`;
+      }
+      return `Debitering: vardag ${weekdayPrice} kr, helg ${weekendPrice} kr`;
     },
 
     getCompactSlotLabel(label) {

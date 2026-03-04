@@ -22,12 +22,19 @@ def test_cost_and_number_parsing_helpers_cover_edge_cases():
     assert resource_config._to_amount("not a number") is None
     assert resource_config._to_amount("12,5 kr") == 12.5
     assert resource_config._price_cents_from_cost({"foo": "x", "bar": "99"}) == 9900
+    assert resource_config._price_cents_by_day_from_cost({"weekday": 200, "weekend": 300}) == (
+        20000,
+        30000,
+    )
+    assert resource_config._price_cents_by_day_from_cost(125) == (12500, 12500)
+    assert resource_config._price_cents_by_day_from_cost({"weekend": 250}) == (25000, 25000)
     assert resource_config._to_positive_int(0, 7) == 7
     assert resource_config._max_future_days("nope") == 30
     assert resource_config._min_future_days("3d") == 3
     assert resource_config._min_future_days("-2") == 0
     assert resource_config._min_future_days("nope") == 0
     assert resource_config._hour_in_range(42, 6, min_value=0, max_value=23) == 6
+    assert resource_config._normalize_category(" laundry ") == "laundry"
 
 
 def test_string_list_and_extract_helpers_cover_nonstandard_input():

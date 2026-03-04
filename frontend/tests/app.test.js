@@ -1273,10 +1273,20 @@ describe("bookingApp", () => {
 
     app.resources = [
       { id: 1, bookingType: "time-slot", isBillable: false, price: 0 },
-      { id: 2, bookingType: "full-day", isBillable: true, price: 250 }
+      {
+        id: 2,
+        bookingType: "full-day",
+        isBillable: true,
+        price: 250,
+        priceWeekday: 200,
+        priceWeekend: 300
+      }
     ];
     app.selectedResourceId = 2;
-    expect(app.getSelectedResourcePrice()).toBe(250);
+    expect(app.getSelectedResourcePrice()).toBe(200);
+    expect(app.getSelectedResourcePriceForDate("2026-03-06")).toBe(200);
+    expect(app.getSelectedResourcePriceForDate("2026-03-07")).toBe(300);
+    expect(app.getResourcePriceLabel(app.selectedResource)).toBe("Debitering: vardag 200 kr, helg 300 kr");
     app.selectedResourceId = 1;
     expect(app.getSelectedResourcePrice()).toBe(0);
 

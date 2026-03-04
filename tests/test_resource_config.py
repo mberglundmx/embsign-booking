@@ -90,6 +90,7 @@ def test_load_booking_objects_inserts_only_missing_resources(db_conn, monkeypatc
         SELECT
             name,
             booking_type,
+            category,
             slot_duration_minutes,
             slot_start_hour,
             slot_end_hour,
@@ -98,6 +99,8 @@ def test_load_booking_objects_inserts_only_missing_resources(db_conn, monkeypatc
             max_bookings,
             allow_houses,
             deny_apartment_ids,
+            price_weekday_cents,
+            price_weekend_cents,
             price_cents,
             is_billable
         FROM resources
@@ -110,6 +113,9 @@ def test_load_booking_objects_inserts_only_missing_resources(db_conn, monkeypatc
     assert rows[0]["max_future_days"] == 90
     assert rows[0]["min_future_days"] == 3
     assert rows[0]["max_bookings"] == 2
+    assert rows[0]["category"] == ""
+    assert rows[0]["price_weekday_cents"] == 20000
+    assert rows[0]["price_weekend_cents"] == 30000
     assert rows[0]["price_cents"] == 20000
     assert rows[0]["is_billable"] == 1
     assert rows[1]["name"] == "Tvättstuga Hus 1"
@@ -119,8 +125,11 @@ def test_load_booking_objects_inserts_only_missing_resources(db_conn, monkeypatc
     assert rows[1]["max_future_days"] == 30
     assert rows[1]["min_future_days"] == 0
     assert rows[1]["max_bookings"] == 2
+    assert rows[1]["category"] == ""
     assert rows[1]["allow_houses"] == ""
     assert rows[1]["deny_apartment_ids"] == ""
+    assert rows[1]["price_weekday_cents"] == 0
+    assert rows[1]["price_weekend_cents"] == 0
 
 
 def test_load_booking_objects_derives_booking_yaml_url_from_csv_url(db_conn, monkeypatch):
@@ -157,6 +166,7 @@ def test_load_booking_objects_maps_slot_settings_from_yaml(db_conn, monkeypatch)
         """
         SELECT
             booking_type,
+            category,
             slot_duration_minutes,
             slot_start_hour,
             slot_end_hour,
@@ -178,6 +188,7 @@ def test_load_booking_objects_maps_slot_settings_from_yaml(db_conn, monkeypatch)
     assert row["max_future_days"] == 14
     assert row["min_future_days"] == 1
     assert row["max_bookings"] == 2
+    assert row["category"] == ""
     assert row["allow_houses"] == "1"
     assert row["deny_apartment_ids"] == "1-1001"
 

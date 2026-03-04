@@ -33,6 +33,7 @@ def test_db_migration_helpers_add_missing_columns():
     db._ensure_resources_booking_type(conn)
     db._ensure_resource_schedule_columns(conn)
     db._ensure_resource_access_columns(conn)
+    db._ensure_resource_pricing_columns(conn)
     db._ensure_apartment_columns(conn)
 
     resource_columns = {
@@ -51,6 +52,9 @@ def test_db_migration_helpers_add_missing_columns():
     assert "max_bookings" in resource_columns
     assert "allow_houses" in resource_columns
     assert "deny_apartment_ids" in resource_columns
+    assert "category" in resource_columns
+    assert "price_weekday_cents" in resource_columns
+    assert "price_weekend_cents" in resource_columns
     assert "house" in apartment_columns
     assert "lgh_internal" in apartment_columns
     assert "skv_lgh" in apartment_columns

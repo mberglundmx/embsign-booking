@@ -154,8 +154,8 @@
                   data-testid="resource-card"
                 >
                   <p class="text-base font-semibold text-slate-900" x-text="resource.name"></p>
-                  <p class="mt-1 text-sm text-slate-600" x-show="resource.price > 0">
-                    Debitering: <span x-text="resource.price"></span> kr
+                  <p class="mt-1 text-sm text-slate-600" x-show="getResourcePriceLabel(resource)">
+                    <span x-text="getResourcePriceLabel(resource)"></span>
                   </p>
                   <p class="mt-1 text-sm text-slate-600" x-show="isNextAvailabilityLoading(resource.id)">
                     Söker nästa lediga tid...
@@ -337,8 +337,8 @@
                                 x-text="getStatusLabel(getFullDayStatus(day.date))"
                               ></p>
                             </template>
-                            <p class="mt-0.5 text-xs" x-show="getSelectedResourcePrice() > 0">
-                              Kostnad: <span x-text="getSelectedResourcePrice()"></span> kr
+                            <p class="mt-0.5 text-xs" x-show="getSelectedResourcePriceForDate(day.date) > 0">
+                              Kostnad: <span x-text="getSelectedResourcePriceForDate(day.date)"></span> kr
                             </p>
                           </button>
                           <button
@@ -427,8 +427,8 @@
                               x-text="getStatusLabel(getTimeSlotStatus(day, slot.id))"
                             ></p>
                           </template>
-                          <p class="mt-0.5 text-xs" x-show="getSelectedResourcePrice() > 0">
-                            Kostnad: <span x-text="getSelectedResourcePrice()"></span> kr
+                          <p class="mt-0.5 text-xs" x-show="getSelectedResourcePriceForDate(day) > 0">
+                            Kostnad: <span x-text="getSelectedResourcePriceForDate(day)"></span> kr
                           </p>
                         </button>
                         <button
