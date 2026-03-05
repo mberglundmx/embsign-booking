@@ -20,6 +20,7 @@ This is a BRF Laundry Booking System on Cloudflare stack:
 
 - **D1 binding in Cloudflare builds**: root `wrangler.jsonc` uses `${D1_DATABASE_ID}`. If you run `wrangler versions upload` directly, set `D1_DATABASE_ID`; if you run `npm run deploy:auto-d1`, the script resolves/injects `database_id` automatically.
 - **Branch D1 auto-provision**: `cd cloudflare/worker && npm run deploy:auto-d1` runs `d1 list` and creates DB only if missing. Production branches use `D1_DATABASE_NAME` (default `brf-booking-d1`), others use `booking-pr-<branch-slug>`.
+- **PR-based naming**: in preview mode the deploy script prefers PR IDs and can infer PR number from refs like `refs/pull/123/head` to name D1 as `booking-pr-pr-123`.
 - **Branch fallback**: if branch env vars are missing in Workers Builds, deploy-mode `deploy` falls back to `main` (or first in `PRODUCTION_BRANCHES`), and `versions-upload` falls back to `preview-<commit-sha>`.
 - **PR-based preview naming**: in `versions-upload`, `CF_PAGES_PULL_REQUEST_ID` is prioritized and generates `pr-<id>` for stable preview D1 reuse per PR.
 - **Workers Builds commands**: use `node cloudflare/worker/scripts/deploy-with-branch-d1.mjs --deploy-mode=versions-upload` for preview and `--deploy-mode=deploy` for production.

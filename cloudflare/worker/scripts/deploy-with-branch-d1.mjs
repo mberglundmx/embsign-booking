@@ -179,6 +179,7 @@ function getBranchName() {
   if (explicit) return explicit;
 
   const fromEnv =
+    process.env.WORKERS_CI_BRANCH ||
     process.env.CF_PAGES_BRANCH ||
     process.env.CF_BRANCH ||
     process.env.GITHUB_HEAD_REF ||
@@ -197,6 +198,26 @@ function getBranchName() {
     if (gitBranch && gitBranch !== "HEAD") return gitBranch;
   }
 
+  return "";
+}
+
+function extractPullRequestNumber(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^\d+$/.test(text)) return text;
+
+  const patterns = [
+    /refs\/pull\/(\d+)\/?/i,
+    /(?:^|[^\d])pull[-_/ ]?(\d+)(?:$|[^\d])/i,
+    /(?:^|[^\d])pr[-_/ ]?(\d+)(?:$|[^\d])/i,
+    /\/pull\/(\d+)(?:\/|$)/i
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
   return "";
 }
 
@@ -223,14 +244,37 @@ function getShortCommitSha() {
 }
 
 function getPullRequestSlug() {
-  const rawId =
-    process.env.CF_PAGES_PULL_REQUEST_ID ||
-    process.env.CF_PULL_REQUEST_ID ||
-    process.env.GITHUB_PR_NUMBER ||
-    "";
-  const normalized = slugifyBranchName(rawId);
-  if (!normalized) return "";
-  return `pr-${normalized}`;
+  const directCandidates = [
+    getArgValue("pr"),
+    process.env.CF_PAGES_PULL_REQUEST_ID,
+    process.env.CF_PULL_REQUEST_ID,
+    process.env.WORKERS_CI_PULL_REQUEST_ID,
+    process.env.GITHUB_PR_NUMBER,
+    process.env.PULL_REQUEST_NUMBER,
+    process.env.PR_NUMBER,
+    process.env.CI_PULL_REQUEST,
+    process.env.CI_MERGE_REQUEST_IID
+  ];
+  for (const candidate of directCandidates) {
+    const prNumber = extractPullRequestNumber(candidate);
+    if (prNumber) return `pr-${prNumber}`;
+  }
+
+  const inferredCandidates = [
+    process.env.WORKERS_CI_BRANCH,
+    process.env.CF_PAGES_BRANCH,
+    process.env.CF_BRANCH,
+    process.env.GITHUB_REF,
+    process.env.GITHUB_HEAD_REF,
+    process.env.GITHUB_REF_NAME,
+    process.env.CF_PAGES_URL
+  ];
+  for (const candidate of inferredCandidates) {
+    const prNumber = extractPullRequestNumber(candidate);
+    if (prNumber) return `pr-${prNumber}`;
+  }
+
+  return "";
 }
 
 function getProductionBranches() {
