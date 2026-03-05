@@ -64,6 +64,75 @@ function runWrangler(args, options = {}) {
   return capture ? String(result.stdout || "") : "";
 }
 
+function runWranglerRaw(args, options = {}) {
+  const { env = process.env } = options;
+  const result = spawnSync("npx", ["wrangler", ...args], {
+    cwd: WORKER_DIR,
+    env,
+    encoding: "utf8",
+    stdio: "pipe"
+  });
+  return {
+    status: result.status ?? 1,
+    stdout: String(result.stdout || ""),
+    stderr: String(result.stderr || "")
+  };
+}
+
+function isUnknownJsonFlag(output) {
+  return /Unknown argument:\s*json/i.test(String(output || ""));
+}
+
+function parseUuid(value) {
+  const match = String(value || "").match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  return match ? match[0] : "";
+}
+
+function parseDatabasesFromTable(output) {
+  const rows = String(output || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("│"));
+
+  const databases = [];
+  for (const row of rows) {
+    const cells = row
+      .split("│")
+      .map((cell) => cell.trim())
+      .filter(Boolean);
+    if (cells.length < 2) continue;
+    const name = cells[0];
+    const uuid = parseUuid(cells[1]);
+    if (!name || !uuid || name === "name") continue;
+    databases.push({ name, uuid });
+  }
+  return databases;
+}
+
+function listDatabases() {
+  const jsonAttempt = runWranglerRaw(["d1", "list", "--json"]);
+  if (jsonAttempt.status === 0) {
+    const listJson = parseJsonFromOutput(jsonAttempt.stdout);
+    return extractDatabaseList(listJson);
+  }
+
+  const jsonError = `${jsonAttempt.stdout}\n${jsonAttempt.stderr}`;
+  if (!isUnknownJsonFlag(jsonError)) {
+    throw new Error(
+      `Wrangler-kommando misslyckades: npx wrangler d1 list --json${jsonAttempt.stderr ? `\n${jsonAttempt.stderr}` : ""}`
+    );
+  }
+
+  const plainAttempt = runWranglerRaw(["d1", "list"]);
+  if (plainAttempt.status !== 0) {
+    throw new Error(
+      `Wrangler-kommando misslyckades: npx wrangler d1 list${plainAttempt.stderr ? `\n${plainAttempt.stderr}` : ""}`
+    );
+  }
+
+  return parseDatabasesFromTable(plainAttempt.stdout);
+}
+
 function getBranchName() {
   const explicit = getArgValue("branch");
   if (explicit) return explicit;
@@ -141,9 +210,7 @@ function findOrCreateDatabase({ databaseName, dryRun }) {
     };
   }
 
-  const listOutput = runWrangler(["d1", "list", "--json"], { capture: true });
-  const listJson = parseJsonFromOutput(listOutput);
-  const databases = extractDatabaseList(listJson);
+  const databases = listDatabases();
   const existing = databases.find((item) => item && item.name === databaseName);
 
   if (existing?.uuid) {
@@ -153,11 +220,18 @@ function findOrCreateDatabase({ databaseName, dryRun }) {
     };
   }
 
-  const createOutput = runWrangler(["d1", "create", databaseName, "--json"], { capture: true });
-  const createJson = parseJsonFromOutput(createOutput);
-  const createdId = createJson?.uuid || createJson?.result?.uuid;
+  const createAttempt = runWranglerRaw(["d1", "create", databaseName]);
+  if (createAttempt.status !== 0) {
+    throw new Error(
+      `Wrangler-kommando misslyckades: npx wrangler d1 create ${databaseName}${createAttempt.stderr ? `\n${createAttempt.stderr}` : ""}`
+    );
+  }
+
+  const refreshed = listDatabases();
+  const created = refreshed.find((item) => item && item.name === databaseName);
+  const createdId = created?.uuid || parseUuid(createAttempt.stdout);
   if (!createdId) {
-    throw new Error(`Kunde inte läsa uuid från skapad databas: ${String(createOutput).slice(0, 500)}`);
+    throw new Error(`Kunde inte läsa uuid från skapad databas: ${String(createAttempt.stdout).slice(0, 500)}`);
   }
 
   return {
