@@ -75,7 +75,7 @@ npm run cf:pages:deploy
   - Build command: `npm ci && npm run build`
   - Output directory: `dist`
 
-Build-scriptet genererar `dist/_redirects` automatiskt så att `/api/*` proxas till rätt Worker-preview.
+Pages Function (`frontend/functions/api/[[path]].js`) proxar `/api/*` till rätt Worker-preview per branch.
 
 Valfria env vars för att styra proxy-målet:
 

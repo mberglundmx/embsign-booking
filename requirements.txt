@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-pytest
-pytest-cov
-ruff
-httpx
-PyYAML

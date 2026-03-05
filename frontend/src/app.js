@@ -368,7 +368,6 @@ export function createBookingApp(options = {}) {
     options.windowObject ?? (typeof window !== "undefined" ? window : globalThis);
   const getApiClient = options.getApiClient ?? getApi;
   const modeDetector = options.modeDetector ?? detectMode;
-  const useMocks = options.useMocks ?? USE_MOCKS;
   const demoRfidUid = options.demoRfidUid ?? DEMO_RFID_UID;
 
   return {

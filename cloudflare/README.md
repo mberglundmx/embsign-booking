@@ -92,16 +92,18 @@ I Cloudflare Pages (nytt projekt):
 
 Detta ger en separat `*.pages.dev`-preview per branch/commit.
 
-Frontend-builden genererar `dist/_redirects` med branch-specifik proxy:
+Frontend använder nu en Pages Function-proxy:
 
-- `/api/*` -> `https://<branch-slug>-embsign-booking.embsign.workers.dev/api/:splat`
+- `frontend/functions/api/[[path]].js`
+- proxar `/api/*` till branch-specifik Worker-preview (`*.workers.dev`)
+- kan override:as med `WORKER_PREVIEW_URL` i Pages env vars
 
-Det gör att Pages-preview och Worker-preview kommunicerar utan manuell URL-konfig per branch.
+Det gör att Pages-preview och Worker-preview kommunicerar per branch utan manuell URL-hantering i frontend.
 
 ### Viktigt för Cloudflare deploy (fix för tidigare build-fel)
 
-- Root-konfigurationen `wrangler.jsonc` är nu avsiktligt minimal för CI/Workers Builds.
-- D1-binding (`DB`) och secrets ska konfigureras i Cloudflare-projektet (Dashboard/Bindings), inte via placeholder-id i repo.
+- Root-konfigurationen `wrangler.jsonc` innehåller D1-binding via env-variabel: `${D1_DATABASE_ID}`.
+- Sätt `D1_DATABASE_ID` i Cloudflare Worker build environment (per environment där ni kör previews/production).
 - Lokalt används separat `cloudflare/worker/wrangler.local.toml`.
 
 ### E-post/captcha-konfig i Worker (Dashboard secrets/vars)

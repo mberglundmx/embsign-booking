@@ -1,11 +1,3 @@
-app.db
-.venv
-.pytest_cache
-.ruff_cache
-.coverage
-coverage.xml
-htmlcov
-app/__pycache__
 frontend/node_modules
 cloudflare/worker/node_modules
 cloudflare/worker/.wrangler
@@ -18,4 +10,3 @@ frontend/coverage-html
 frontend/coverage-lcov
 frontend/coverage-lcov-html
 frontend/coverage-lcov-html
-*.pyc

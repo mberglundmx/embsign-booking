@@ -16,8 +16,7 @@ export default defineConfig({
     }
   },
   preview: {
-    // Railway healthcheck uses the public service domain as Host-header.
-    // Allow all hosts in preview mode so container health checks pass.
+    // Allow all hosts in preview mode for Cloud preview URLs and local container checks.
     allowedHosts: true
   },
   test: {

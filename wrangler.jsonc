@@ -1,5 +1,13 @@
 {
   "name": "embsign-booking",
   "main": "cloudflare/worker/src/index.js",
-  "compatibility_date": "2026-03-05"
+  "compatibility_date": "2026-03-05",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "brf-booking-d1",
+      "database_id": "${D1_DATABASE_ID}",
+      "migrations_dir": "cloudflare/worker/migrations"
+    }
+  ]
 }
