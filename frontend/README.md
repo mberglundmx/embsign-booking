@@ -11,12 +11,16 @@ npm run dev
 
 Multi-tenant:
 
-- Öppna gärna med tenant i URL, t.ex. `http://localhost:5173/min-brf`.
-- Om tenant saknas visas tenant-väljare i inloggningsvyn.
+- Root (`/`) visar landningssida med:
+  - info om tjänsten
+  - dropdown för att välja BRF och gå till rätt subdomän
+  - registreringsflöde (subdomän, e-post, org.nr, captcha)
+- På tenant-subdomän visas inloggningsvyn direkt.
 
 För backend-anslutning:
 
 - `VITE_API_BASE` (standard: `/api`)
+- `VITE_ROOT_DOMAIN` (standard: `bokningsportal.app`)
 - `VITE_RFID_UID` (demo-UID för POS-login)
 - `VITE_USE_MOCKS=true` för att köra med lokala mocks istället.
 

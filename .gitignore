@@ -9,6 +9,7 @@ app/__pycache__
 frontend/node_modules
 cloudflare/worker/node_modules
 cloudflare/worker/.wrangler
+.wrangler
 frontend/test-results
 frontend/dist
 frontend/build

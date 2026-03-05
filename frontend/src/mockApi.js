@@ -49,6 +49,9 @@ let bookings = [];
 let blocks = [];
 let activeTenantId = "demo-brf";
 let tenants = [{ id: "demo-brf", name: "Demo BRF" }];
+let tenantAdmins = {
+  "demo-brf": { apartment_id: "admin", password: "admin" }
+};
 
 function getDateString(date) {
   return toLocalDateString(date);
@@ -148,6 +151,9 @@ export function resetMockState() {
   activeIsAdmin = false;
   activeTenantId = "demo-brf";
   tenants = [{ id: "demo-brf", name: "Demo BRF" }];
+  tenantAdmins = {
+    "demo-brf": { apartment_id: "admin", password: "admin" }
+  };
   const day = "2030-01-15";
   const { start, end } = buildHourlySlots(day)[1];
   bookings = [
@@ -200,11 +206,69 @@ export function createTenant(payload = {}) {
   };
   tenants = [...tenants, created];
   activeTenantId = tenantId;
+  tenantAdmins[tenantId] = { apartment_id: "admin", password: "demo-admin-password" };
   return {
     tenant_id: tenantId,
     name: created.name,
     admin_apartment_id: "admin",
     admin_password: "demo-admin-password"
+  };
+}
+
+export function checkSubdomainAvailability(subdomain = "") {
+  const normalized = String(subdomain || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) {
+    return { subdomain: "", available: false, reason: "invalid_subdomain" };
+  }
+  const exists = tenants.some((tenant) => tenant.id === normalized);
+  return {
+    subdomain: normalized,
+    available: !exists,
+    reason: exists ? "taken" : "available"
+  };
+}
+
+function generatePassword() {
+  return Math.random()
+    .toString(36)
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 12);
+}
+
+export function registerTenant(payload = {}) {
+  const subdomain = String(payload.subdomain || "")
+    .trim()
+    .toLowerCase();
+  const name = String(payload.association_name || payload.name || subdomain).trim();
+  const email = String(payload.email || "").trim().toLowerCase();
+  const organizationNumber = String(payload.organization_number || "").trim();
+  const captchaToken = String(payload.captcha_token || "").trim();
+  if (!subdomain || !email || !organizationNumber || !captchaToken) {
+    const error = new Error("invalid_registration_payload");
+    error.status = 400;
+    throw error;
+  }
+  const availability = checkSubdomainAvailability(subdomain);
+  if (!availability.available) {
+    const error = new Error("subdomain_taken");
+    error.status = 409;
+    throw error;
+  }
+  const adminPassword = generatePassword();
+  tenants = [...tenants, { id: subdomain, name }];
+  tenantAdmins[subdomain] = { apartment_id: "admin", password: adminPassword };
+  activeTenantId = subdomain;
+  return {
+    status: "email_sent",
+    tenant_id: subdomain,
+    login_url: `https://${subdomain}.bokningsportal.app`,
+    development_preview: {
+      apartment_id: "admin",
+      password: adminPassword,
+      email
+    }
   };
 }
 
@@ -225,6 +289,16 @@ export function loginWithRfid(uid = "") {
 }
 
 export function loginWithPassword(apartmentId, password) {
+  const tenantAdmin = tenantAdmins[activeTenantId];
+  if (
+    tenantAdmin &&
+    apartmentId === tenantAdmin.apartment_id &&
+    password === tenantAdmin.password
+  ) {
+    activeApartmentId = apartmentId;
+    activeIsAdmin = true;
+    return { apartment_id: apartmentId, booking_url: "/booking", is_admin: true };
+  }
   const user = users.find((item) => item.apartment_id === apartmentId);
   if (!user || user.password !== password) {
     const error = new Error("invalid_credentials");

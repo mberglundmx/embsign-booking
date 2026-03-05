@@ -176,6 +176,23 @@ export async function createTenant(payload) {
   );
 }
 
+export async function checkSubdomainAvailability(subdomain) {
+  const params = new URLSearchParams();
+  params.set("subdomain", String(subdomain || "").trim().toLowerCase());
+  return request(`/public/subdomain-availability?${params.toString()}`, {}, { tenantRequired: false });
+}
+
+export async function registerTenant(payload) {
+  return request(
+    "/public/register",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    { tenantRequired: false }
+  );
+}
+
 export async function getTenantConfig() {
   const data = await request("/admin/config");
   return data.configs ?? {};

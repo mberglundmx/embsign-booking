@@ -5,7 +5,7 @@ import {
   parseLocalDateString,
   toLocalDateString
 } from "./dateUtils";
-import { buildTenantPath, detectTenantId, normalizeTenantId, storeTenantId } from "./tenant";
+import { buildTenantUrl, detectTenantId, normalizeTenantId, storeTenantId } from "./tenant";
 
 const DEFAULT_MODE = "desktop";
 const FULL_DAY_COUNT = 30;
@@ -15,6 +15,7 @@ const NEXT_AVAILABILITY_LOADING = "__loading__";
 const NEXT_AVAILABILITY_NONE = "__none__";
 const DEFAULT_DEPLOY_CHECK_INTERVAL_MS = 30000;
 const TENANT_ID_SUGGESTION_REGEX = /[^a-z0-9-]/g;
+const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "bokningsportal.app";
 const RAW_CONFIGURED_PUBLIC_HOSTNAME = import.meta.env.VITE_PUBLIC_HOSTNAME ?? "";
 const RAW_FRONTEND_ORIGINS =
   import.meta.env.VITE_FRONTEND_ORIGINS ?? import.meta.env.FRONTEND_ORIGINS ?? "";
@@ -378,6 +379,17 @@ export function createBookingApp(options = {}) {
     tenantNameInput: "",
     tenantSetupMessage: "",
     tenantErrorMessage: "",
+    landingTenantSelection: "",
+    registrationOpen: false,
+    registrationStep: 1,
+    registrationSubdomainInput: "",
+    registrationAssociationName: "",
+    registrationEmailInput: "",
+    registrationOrgNumberInput: "",
+    registrationCaptchaToken: "",
+    registrationErrorMessage: "",
+    registrationSuccessMessage: "",
+    registrationAvailabilityMessage: "",
     tenantLoading: false,
     isAuthenticated: false,
     authenticatedStep: "setup",
@@ -432,6 +444,8 @@ export function createBookingApp(options = {}) {
       if (detected) {
         this.tenantId = detected;
         this.tenantSelectionInput = detected;
+        this.landingTenantSelection = detected;
+        this.registrationSubdomainInput = detected;
         storeTenantId(detected, runtimeWindow.localStorage);
       }
       try {
@@ -442,11 +456,11 @@ export function createBookingApp(options = {}) {
         if (this.tenantId && typeof api.setTenantId === "function") {
           api.setTenantId(this.tenantId);
         }
+        if (!this.landingTenantSelection && this.tenantOptions[0]?.id) {
+          this.landingTenantSelection = this.tenantOptions[0].id;
+        }
       } catch {
         this.tenantOptions = [];
-      }
-      if (useMocks && !this.tenantId) {
-        this.tenantId = "demo-brf";
       }
       if (this.tenantId) {
         const api = await getApiClient();
@@ -465,50 +479,109 @@ export function createBookingApp(options = {}) {
       if (!preserveSetupMessage) {
         this.tenantSetupMessage = "";
       }
+      const targetUrl = buildTenantUrl(nextTenantId, runtimeWindow.location, ROOT_DOMAIN);
+      if (runtimeWindow.location?.hostname?.includes(ROOT_DOMAIN)) {
+        runtimeWindow.location.assign(targetUrl);
+        return;
+      }
       this.tenantId = nextTenantId;
+      this.landingTenantSelection = nextTenantId;
       storeTenantId(nextTenantId, runtimeWindow.localStorage);
       const api = await getApiClient();
       api.setTenantId?.(nextTenantId);
-      const targetPath = buildTenantPath(nextTenantId);
-      if (runtimeWindow.history?.replaceState && runtimeWindow.location?.pathname !== targetPath) {
-        runtimeWindow.history.replaceState({}, "", targetPath);
+      if (runtimeWindow.history?.replaceState && runtimeWindow.location?.pathname !== `/${nextTenantId}`) {
+        runtimeWindow.history.replaceState({}, "", `/${nextTenantId}`);
       }
     },
 
-    async createTenant() {
-      const tenantId = normalizeTenantInput(this.tenantSelectionInput);
-      const tenantName = String(this.tenantNameInput || "").trim();
-      if (!tenantId) {
-        this.tenantErrorMessage = "Ange ett BRF-ID innan du skapar tenant.";
+    goToSelectedTenant() {
+      this.tenantSelectionInput = this.landingTenantSelection;
+      return this.selectTenant();
+    },
+
+    openRegistration() {
+      this.registrationOpen = true;
+      this.registrationStep = 1;
+      this.registrationErrorMessage = "";
+      this.registrationSuccessMessage = "";
+      this.registrationAvailabilityMessage = "";
+      this.registrationSubdomainInput = normalizeTenantInput(
+        this.registrationSubdomainInput || this.tenantNameInput || ""
+      );
+    },
+
+    closeRegistration() {
+      this.registrationOpen = false;
+      this.registrationStep = 1;
+      this.registrationErrorMessage = "";
+      this.registrationAvailabilityMessage = "";
+    },
+
+    async checkRegistrationSubdomain() {
+      const candidate = normalizeTenantInput(this.registrationSubdomainInput);
+      if (!candidate) {
+        this.registrationErrorMessage = "Ange ett giltigt förslag på subdomän.";
         return;
       }
-      if (!tenantName) {
-        this.tenantErrorMessage = "Ange BRF-namn innan du skapar tenant.";
-        return;
-      }
+      this.registrationErrorMessage = "";
+      this.registrationAvailabilityMessage = "";
       this.tenantLoading = true;
-      this.tenantErrorMessage = "";
-      this.tenantSetupMessage = "";
       try {
         const api = await getApiClient();
-        if (typeof api.createTenant !== "function") {
-          throw new Error("tenant_creation_not_supported");
+        const result = await api.checkSubdomainAvailability(candidate);
+        if (!result.available) {
+          this.registrationErrorMessage = "Subdomänen är redan upptagen. Välj en annan.";
+          return;
         }
-        const created = await api.createTenant({
-          tenant_id: tenantId,
-          name: tenantName
-        });
-        this.tenantSetupMessage = `Skapad BRF ${created.tenant_id}. Admin-lösenord: ${created.admin_password}`;
-        this.userIdInput = created.admin_apartment_id ?? "admin";
-        this.passwordInput = created.admin_password ?? "";
-        this.tenantOptions = typeof api.listTenants === "function" ? await api.listTenants() : this.tenantOptions;
-        this.tenantSelectionInput = created.tenant_id;
-        await this.selectTenant({ preserveSetupMessage: true });
+        this.registrationSubdomainInput = candidate;
+        this.registrationAvailabilityMessage = `Subdomänen ${candidate}.${ROOT_DOMAIN} är ledig.`;
+        this.registrationStep = 2;
       } catch (error) {
-        if (error?.message === "tenant_exists") {
-          this.tenantErrorMessage = "BRF-ID finns redan. Välj det i listan.";
+        this.registrationErrorMessage = `Kunde inte kontrollera subdomän (${error?.message || "okänt fel"}).`;
+      } finally {
+        this.tenantLoading = false;
+      }
+    },
+
+    async submitRegistration() {
+      const subdomain = normalizeTenantInput(this.registrationSubdomainInput);
+      const associationName = String(this.registrationAssociationName || "").trim();
+      const email = String(this.registrationEmailInput || "").trim();
+      const organizationNumber = String(this.registrationOrgNumberInput || "").trim();
+      const captchaToken = String(this.registrationCaptchaToken || "").trim();
+      if (!subdomain || !associationName || !email || !organizationNumber || !captchaToken) {
+        this.registrationErrorMessage = "Fyll i subdomän, föreningsnamn, e-post, org.nr och captcha.";
+        return;
+      }
+      this.registrationErrorMessage = "";
+      this.registrationSuccessMessage = "";
+      this.tenantLoading = true;
+      try {
+        const api = await getApiClient();
+        const result = await api.registerTenant({
+          subdomain,
+          association_name: associationName,
+          email,
+          organization_number: organizationNumber,
+          captcha_token: captchaToken
+        });
+        this.registrationSuccessMessage =
+          "Registrering skickad. Du får administratörsinloggning via e-post när uppsättningen är klar.";
+        this.tenantOptions = typeof api.listTenants === "function" ? await api.listTenants() : this.tenantOptions;
+        this.landingTenantSelection = subdomain;
+        if (result?.development_preview?.apartment_id && result?.development_preview?.password) {
+          this.registrationSuccessMessage = `Registrering klar (dev). Inloggning: ${result.development_preview.apartment_id} / ${result.development_preview.password}`;
+          this.userIdInput = result.development_preview.apartment_id;
+          this.passwordInput = result.development_preview.password;
+        }
+      } catch (error) {
+        if (error?.message === "subdomain_taken") {
+          this.registrationErrorMessage = "Subdomänen blev upptagen. Prova en annan.";
+          this.registrationStep = 1;
+        } else if (error?.message === "captcha_failed") {
+          this.registrationErrorMessage = "Captcha-verifiering misslyckades.";
         } else {
-          this.tenantErrorMessage = "Kunde inte skapa BRF just nu.";
+          this.registrationErrorMessage = "Registreringen misslyckades just nu. Försök igen.";
         }
       } finally {
         this.tenantLoading = false;
@@ -541,6 +614,10 @@ export function createBookingApp(options = {}) {
 
     get hasTenantSelected() {
       return Boolean(this.tenantId);
+    },
+
+    get isLandingPage() {
+      return !this.isAuthenticated && !this.hasTenantSelected;
     },
 
     get isSetupStep() {

@@ -1,7 +1,9 @@
 const DEFAULT_SESSION_TTL_SECONDS = 600;
 const TENANT_ID_REGEX = /^[a-z0-9][a-z0-9-]{1,62}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_MIN_LENGTH = 4;
 const MAX_AVAILABILITY_RANGE_DAYS = 366;
+const DEFAULT_ROOT_DOMAIN = "bokningsportal.app";
 
 function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
@@ -24,6 +26,21 @@ function normalizeTenantId(value) {
 
 function validTenantId(value) {
   return TENANT_ID_REGEX.test(value);
+}
+
+function normalizeEmail(value) {
+  const email = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!EMAIL_REGEX.test(email)) return "";
+  return email;
+}
+
+function normalizeOrganizationNumber(value) {
+  const raw = String(value || "").trim();
+  const digits = raw.replace(/[^\d]/g, "");
+  if (digits.length < 10 || digits.length > 12) return "";
+  return digits;
 }
 
 function nowIso() {
@@ -143,11 +160,34 @@ async function run(db, sql, ...args) {
   return db.prepare(sql).bind(...args).run();
 }
 
-async function getTenantId(request, url) {
+function getTenantIdFromHost(request, rootDomain) {
+  const headerHost =
+    request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
+  const normalizedHost = String(headerHost || "")
+    .trim()
+    .toLowerCase()
+    .split(":")[0];
+  const normalizedRootDomain = String(rootDomain || DEFAULT_ROOT_DOMAIN)
+    .trim()
+    .toLowerCase();
+  if (!normalizedHost || !normalizedRootDomain) return "";
+  if (normalizedHost === normalizedRootDomain) return "";
+  const suffix = `.${normalizedRootDomain}`;
+  if (!normalizedHost.endsWith(suffix)) return "";
+  const candidate = normalizedHost.slice(0, -suffix.length);
+  if (candidate.includes(".")) return "";
+  const tenantId = normalizeTenantId(candidate);
+  if (!validTenantId(tenantId)) return "";
+  return tenantId;
+}
+
+async function getTenantId(request, url, env) {
   const headerId = normalizeTenantId(request.headers.get("x-brf-id") || "");
   if (headerId) return headerId;
   const queryId = normalizeTenantId(url.searchParams.get("brf_id") || url.searchParams.get("brf") || "");
   if (queryId) return queryId;
+  const fromHost = getTenantIdFromHost(request, env.ROOT_DOMAIN || DEFAULT_ROOT_DOMAIN);
+  if (fromHost) return fromHost;
   return "";
 }
 
@@ -696,30 +736,50 @@ async function createDefaultResource(db, tenantId) {
   );
 }
 
-async function handlePublicCreateTenant(request, db) {
-  const payload = (await parseJsonBody(request)) ?? {};
-  const tenantId = normalizeTenantId(payload.tenant_id);
+async function isSubdomainAvailable(db, subdomain) {
+  const tenantId = normalizeTenantId(subdomain);
   if (!validTenantId(tenantId)) {
-    return toErrorResponse(400, "invalid_tenant_id");
-  }
-  const name = String(payload.name || tenantId).trim();
-  if (!name) {
-    return toErrorResponse(400, "invalid_tenant_name");
+    return { available: false, reason: "invalid_subdomain" };
   }
   const existing = await first(db, "SELECT id FROM tenants WHERE id = ?", tenantId);
   if (existing) {
-    return toErrorResponse(409, "tenant_exists");
+    return { available: false, reason: "taken" };
   }
+  return { available: true, reason: "available" };
+}
+
+async function createTenantRecord(
+  db,
+  tenantId,
+  tenantName,
+  configObject = {},
+  metadata = {}
+) {
   const adminApartmentId = "admin";
   const adminPassword = randomPassword(16);
   const adminPasswordHash = await sha256(adminPassword);
   await run(
     db,
-    "INSERT INTO tenants (id, name, admin_apartment_id, admin_password_hash, is_active) VALUES (?, ?, ?, ?, 1)",
+    `
+    INSERT INTO tenants (
+      id,
+      name,
+      admin_apartment_id,
+      admin_password_hash,
+      is_active,
+      admin_email,
+      organization_number,
+      created_at
+    )
+    VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+    `,
     tenantId,
-    name,
+    tenantName,
     adminApartmentId,
-    adminPasswordHash
+    adminPasswordHash,
+    metadata.adminEmail || null,
+    metadata.organizationNumber || null,
+    nowIso()
   );
   await run(
     db,
@@ -731,8 +791,7 @@ async function handlePublicCreateTenant(request, db) {
     adminApartmentId,
     adminPasswordHash
   );
-  const configObject = typeof payload.config === "object" && payload.config ? payload.config : {};
-  for (const [key, value] of Object.entries(configObject)) {
+  for (const [key, value] of Object.entries(configObject || {})) {
     const normalizedKey = String(key).trim();
     if (!normalizedKey) continue;
     await run(
@@ -749,12 +808,107 @@ async function handlePublicCreateTenant(request, db) {
     );
   }
   await createDefaultResource(db, tenantId);
-  return json({
+  return {
     tenant_id: tenantId,
-    name,
+    name: tenantName,
     admin_apartment_id: adminApartmentId,
     admin_password: adminPassword
+  };
+}
+
+async function deleteTenant(db, tenantId) {
+  await run(db, "DELETE FROM tenants WHERE id = ?", tenantId);
+}
+
+async function verifyCaptcha(env, captchaToken, remoteIp) {
+  const token = String(captchaToken || "").trim();
+  if (!token) return false;
+  const secret = String(env.TURNSTILE_SECRET || "").trim();
+  if (!secret) {
+    const allowBypass = String(env.DEV_CAPTCHA_BYPASS || "false") === "true";
+    return allowBypass && token === "dev-ok";
+  }
+  const body = new URLSearchParams();
+  body.set("secret", secret);
+  body.set("response", token);
+  if (remoteIp) {
+    body.set("remoteip", remoteIp);
+  }
+  const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: body.toString()
   });
+  if (!response.ok) return false;
+  const result = await response.json();
+  return Boolean(result?.success);
+}
+
+function buildTenantLoginUrl(tenantId, rootDomain) {
+  return `https://${tenantId}.${rootDomain}`;
+}
+
+async function sendCredentialsEmail(env, payload) {
+  const apiKey = String(env.RESEND_API_KEY || "").trim();
+  const fromEmail = String(env.EMAIL_FROM || "").trim();
+  if (!apiKey || !fromEmail) {
+    const allowDevInline = String(env.DEV_EMAIL_INLINE_RESPONSE || "false") === "true";
+    if (allowDevInline) {
+      return {
+        delivered: true,
+        development_preview: {
+          apartment_id: payload.adminApartmentId,
+          password: payload.adminPassword
+        }
+      };
+    }
+    return { delivered: false, reason: "email_not_configured" };
+  }
+
+  const subject = `Inloggning till ${payload.tenantName} (${payload.tenantId})`;
+  const html = `
+    <p>Hej!</p>
+    <p>Din BRF är nu registrerad i Bokningsportalen.</p>
+    <p><strong>Inloggningsadress:</strong> <a href="${payload.loginUrl}">${payload.loginUrl}</a></p>
+    <p><strong>Användare:</strong> ${payload.adminApartmentId}<br/><strong>Lösenord:</strong> ${payload.adminPassword}</p>
+    <p>Byt lösenord direkt efter första inloggningen.</p>
+  `;
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: fromEmail,
+      to: [payload.email],
+      subject,
+      html
+    })
+  });
+  if (!response.ok) {
+    return { delivered: false, reason: "email_delivery_failed" };
+  }
+  return { delivered: true };
+}
+
+async function handlePublicCreateTenant(request, db) {
+  const payload = (await parseJsonBody(request)) ?? {};
+  const tenantId = normalizeTenantId(payload.tenant_id);
+  if (!validTenantId(tenantId)) {
+    return toErrorResponse(400, "invalid_tenant_id");
+  }
+  const name = String(payload.name || tenantId).trim();
+  if (!name) {
+    return toErrorResponse(400, "invalid_tenant_name");
+  }
+  const existing = await first(db, "SELECT id FROM tenants WHERE id = ?", tenantId);
+  if (existing) {
+    return toErrorResponse(409, "tenant_exists");
+  }
+  const configObject = typeof payload.config === "object" && payload.config ? payload.config : {};
+  const created = await createTenantRecord(db, tenantId, name, configObject);
+  return json(created);
 }
 
 async function handleRequest(request, env) {
@@ -789,13 +943,93 @@ async function handleRequest(request, env) {
       return json({ tenants }, 200, headers);
     }
 
+    if (method === "GET" && url.pathname === "/api/public/subdomain-availability") {
+      const subdomain = normalizeTenantId(url.searchParams.get("subdomain") || "");
+      const availability = await isSubdomainAvailable(db, subdomain);
+      return json(
+        {
+          subdomain,
+          available: availability.available,
+          reason: availability.reason
+        },
+        200,
+        headers
+      );
+    }
+
     if (method === "POST" && url.pathname === "/api/public/tenants") {
       const response = await handlePublicCreateTenant(request, db);
       Object.entries(headers).forEach(([key, value]) => response.headers.set(key, value));
       return response;
     }
 
-    const tenantId = await getTenantId(request, url);
+    if (method === "POST" && url.pathname === "/api/public/register") {
+      const payload = (await parseJsonBody(request)) ?? {};
+      const subdomain = normalizeTenantId(payload.subdomain);
+      const associationName = String(payload.association_name || payload.name || subdomain).trim();
+      const email = normalizeEmail(payload.email);
+      const organizationNumber = normalizeOrganizationNumber(payload.organization_number);
+      const captchaToken = String(payload.captcha_token || "").trim();
+      if (!validTenantId(subdomain)) {
+        return errorResponse(400, "invalid_subdomain");
+      }
+      if (!associationName) {
+        return errorResponse(400, "invalid_association_name");
+      }
+      if (!email) {
+        return errorResponse(400, "invalid_email");
+      }
+      if (!organizationNumber) {
+        return errorResponse(400, "invalid_organization_number");
+      }
+      const availability = await isSubdomainAvailable(db, subdomain);
+      if (!availability.available) {
+        return errorResponse(409, "subdomain_taken");
+      }
+      const captchaOk = await verifyCaptcha(
+        env,
+        captchaToken,
+        request.headers.get("cf-connecting-ip") || ""
+      );
+      if (!captchaOk) {
+        return errorResponse(400, "captcha_failed");
+      }
+
+      const created = await createTenantRecord(
+        db,
+        subdomain,
+        associationName,
+        {},
+        { adminEmail: email, organizationNumber }
+      );
+      const rootDomain = String(env.ROOT_DOMAIN || DEFAULT_ROOT_DOMAIN).trim().toLowerCase();
+      const loginUrl = buildTenantLoginUrl(created.tenant_id, rootDomain);
+      const emailResult = await sendCredentialsEmail(env, {
+        email,
+        tenantId: created.tenant_id,
+        tenantName: created.name,
+        adminApartmentId: created.admin_apartment_id,
+        adminPassword: created.admin_password,
+        loginUrl
+      });
+      if (!emailResult.delivered) {
+        await deleteTenant(db, created.tenant_id);
+        return errorResponse(503, emailResult.reason || "email_delivery_failed");
+      }
+
+      return json(
+        {
+          status: "email_sent",
+          tenant_id: created.tenant_id,
+          login_url: loginUrl,
+          ...(emailResult.development_preview ? { development_preview: emailResult.development_preview } : {})
+        },
+        200,
+        headers
+      );
+    }
+
+    const tenantId = await getTenantId(request, url, env);
     const tenant = await getTenant(db, tenantId);
     if (!tenant || Number(tenant.is_active) !== 1) {
       return errorResponse(400, "invalid_tenant");
@@ -829,7 +1063,7 @@ async function handleRequest(request, env) {
       const createdSession = await createSession(db, tenantId, apartmentId, isAdmin);
       return json(
         {
-          booking_url: `/booking/${tenantId}`,
+          booking_url: "/",
           apartment_id: apartmentId,
           is_admin: isAdmin
         },
@@ -891,7 +1125,7 @@ async function handleRequest(request, env) {
       const createdSession = await createSession(db, tenantId, targetApartmentId, targetIsAdmin);
       return json(
         {
-          booking_url: `/booking/${tenantId}`,
+          booking_url: "/",
           apartment_id: targetApartmentId,
           is_admin: targetIsAdmin
         },

@@ -8,24 +8,31 @@ Detta repo innehåller nu en Cloudflare-stack med:
 
 ## Multi-tenant
 
-- Tenant/BRF identifieras med `BRF_ID` (tenant-id), exempel:
-  - `https://bokning.example.se/min-brf`
-- Frontend skickar tenant vidare till backend via headern `X-BRF-ID`.
-- Om ingen tenant är vald visas tenant-väljare i inloggningsvyn.
+- Tenant/BRF identifieras primärt via subdomän:
+  - `https://foo.bokningsportal.app` ⇒ tenant/BRF-ID = `foo`
+- Backend läser tenant i denna ordning:
+  1. Header `X-BRF-ID`
+  2. Query (`brf_id` / `brf`)
+  3. Subdomän från hostnamn
+- Rootdomänen (`https://bokningsportal.app/`) fungerar som landningssida.
 
-## Onboarding av ny BRF
+## Onboarding av ny BRF (landningssida)
 
-Skapa tenant:
+1) Kontrollera om subdomän är ledig:
 
-`POST /api/public/tenants`
+`GET /api/public/subdomain-availability?subdomain=min-brf`
+
+2) Registrera BRF:
+
+`POST /api/public/register`
 
 Body:
 
-`{"tenant_id":"min-brf","name":"BRF Min BRF"}`
+`{"subdomain":"min-brf","association_name":"BRF Min BRF","email":"styrelsen@brf.se","organization_number":"7696XXXXXX","captcha_token":"..."}`
 
-Svar innehåller genererat admin-lösenord:
+Vid lyckad registrering skickas admin-login/lösenord via e-post.
 
-`{"tenant_id":"min-brf","admin_apartment_id":"admin","admin_password":"..."}`
+> För lokal utveckling kan `DEV_CAPTCHA_BYPASS=true` och `captcha_token=dev-ok` användas.
 
 ## Konfigurationsparametrar i databas
 
@@ -62,9 +69,19 @@ Frontend:
 Backend:
 
 - `cd cloudflare/worker && npx wrangler deploy`
+- eller från repo-root: `npx wrangler deploy` (använder `wrangler.jsonc`)
 
 Frontend:
 
 - `cd frontend && npm run build && npx wrangler pages deploy dist`
 
-> Sätt korrekt `database_id` i `cloudflare/worker/wrangler.toml` innan deploy.
+### E-post/captcha-konfig i Worker
+
+Sätt följande secrets/vars i Cloudflare:
+
+- `TURNSTILE_SECRET` (captcha-verifiering)
+- `RESEND_API_KEY` (e-post via Resend)
+- `EMAIL_FROM` (avsändaradress)
+- `ROOT_DOMAIN` (t.ex. `bokningsportal.app`)
+
+> Sätt korrekt `database_id` i Worker-konfigurationen innan deploy.
