@@ -342,6 +342,7 @@ function createResolvedWranglerConfig({ databaseId, databaseName }) {
   const injectedVars = {};
   const forwardableVarNames = [
     "TURNSTILE_SITE_KEY",
+    "TURNSTILE_SECRET",
     "ROOT_DOMAIN",
     "DEV_CAPTCHA_BYPASS",
     "DEV_EMAIL_INLINE_RESPONSE",
