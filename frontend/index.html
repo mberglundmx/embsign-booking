@@ -125,8 +125,24 @@
                 data-testid="register-org-number"
               />
             </label>
-            <label class="flex flex-col gap-1">
-              <span class="text-sm font-medium text-slate-700">Captcha-token</span>
+            <div class="flex flex-col gap-2" x-show="registrationCaptchaEnabled">
+              <span class="text-sm font-medium text-slate-700">Verifiera att du är människa</span>
+              <div
+                class="min-h-20 rounded-xl border border-slate-200 bg-slate-50 p-2"
+                x-ref="turnstileWidget"
+                data-testid="register-turnstile-widget"
+              ></div>
+              <p class="text-xs text-slate-500" x-show="registrationCaptchaLoading">
+                Laddar captcha...
+              </p>
+              <p
+                class="text-xs text-rose-700"
+                x-show="registrationCaptchaLoadError"
+                x-text="registrationCaptchaLoadError"
+              ></p>
+            </div>
+            <label class="flex flex-col gap-1" x-show="!registrationCaptchaEnabled">
+              <span class="text-sm font-medium text-slate-700">Captcha-token (fallback)</span>
               <input
                 class="input border-slate-300 bg-white"
                 type="text"

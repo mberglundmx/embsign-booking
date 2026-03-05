@@ -22,18 +22,72 @@ const RAW_FRONTEND_ORIGINS =
 const DEMO_RFID_UID = import.meta.env.VITE_RFID_UID || "UID123";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 const DEPLOY_AUTO_RELOAD_ENABLED = import.meta.env.VITE_AUTO_RELOAD_ON_DEPLOY !== "false";
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+const TURNSTILE_SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 const DEFAULT_TENANT_ID =
   Boolean(import.meta.vitest) || import.meta.env?.MODE === "test" || import.meta.env?.VITEST === "true"
     ? "test-brf"
     : "";
 
 let apiPromise = null;
+let turnstileScriptPromise = null;
 
 async function getApi() {
   if (!apiPromise) {
     apiPromise = USE_MOCKS ? import("./mockApi") : import("./api");
   }
   return apiPromise;
+}
+
+async function ensureTurnstileScript(runtimeWindow) {
+  if (runtimeWindow.turnstile?.render) {
+    return runtimeWindow.turnstile;
+  }
+  if (turnstileScriptPromise) {
+    await turnstileScriptPromise;
+    return runtimeWindow.turnstile;
+  }
+
+  turnstileScriptPromise = new Promise((resolve, reject) => {
+    const existing = runtimeWindow.document.querySelector(`script[src="${TURNSTILE_SCRIPT_SRC}"]`);
+    if (existing) {
+      existing.addEventListener(
+        "load",
+        () => resolve(runtimeWindow.turnstile),
+        { once: true }
+      );
+      existing.addEventListener(
+        "error",
+        () => reject(new Error("turnstile_script_load_failed")),
+        { once: true }
+      );
+      return;
+    }
+
+    const script = runtimeWindow.document.createElement("script");
+    script.src = TURNSTILE_SCRIPT_SRC;
+    script.async = true;
+    script.defer = true;
+    script.addEventListener(
+      "load",
+      () => resolve(runtimeWindow.turnstile),
+      { once: true }
+    );
+    script.addEventListener(
+      "error",
+      () => reject(new Error("turnstile_script_load_failed")),
+      { once: true }
+    );
+    runtimeWindow.document.head.appendChild(script);
+  });
+
+  try {
+    await turnstileScriptPromise;
+  } catch (error) {
+    turnstileScriptPromise = null;
+    throw error;
+  }
+  return runtimeWindow.turnstile;
 }
 
 export function detectMode(search = typeof window !== "undefined" ? window.location.search : "") {
@@ -386,6 +440,12 @@ export function createBookingApp(options = {}) {
     registrationEmailInput: "",
     registrationOrgNumberInput: "",
     registrationCaptchaToken: "",
+    registrationCaptchaProvider: "turnstile",
+    registrationCaptchaEnabled: Boolean(TURNSTILE_SITE_KEY),
+    registrationCaptchaSiteKey: TURNSTILE_SITE_KEY,
+    registrationCaptchaWidgetId: null,
+    registrationCaptchaLoading: false,
+    registrationCaptchaLoadError: "",
     registrationErrorMessage: "",
     registrationSuccessMessage: "",
     registrationAvailabilityMessage: "",
@@ -434,6 +494,7 @@ export function createBookingApp(options = {}) {
       this.days = getUpcomingDays(FULL_DAY_COUNT);
       this.bindRfidListener();
       await this.initializeTenantContext();
+      await this.loadCaptchaConfig();
       const api = await getApiClient();
       api.logBackendStatus?.();
     },
@@ -498,12 +559,94 @@ export function createBookingApp(options = {}) {
       return this.selectTenant();
     },
 
+    async loadCaptchaConfig() {
+      this.registrationCaptchaProvider = "turnstile";
+      this.registrationCaptchaSiteKey = TURNSTILE_SITE_KEY;
+      this.registrationCaptchaEnabled = Boolean(TURNSTILE_SITE_KEY);
+
+      try {
+        const api = await getApiClient();
+        if (typeof api.getCaptchaConfig !== "function") return;
+        const config = await api.getCaptchaConfig();
+        this.registrationCaptchaProvider = String(config?.provider || "turnstile");
+        this.registrationCaptchaSiteKey = String(config?.site_key || "").trim();
+        this.registrationCaptchaEnabled =
+          Boolean(config?.enabled) &&
+          this.registrationCaptchaProvider === "turnstile" &&
+          Boolean(this.registrationCaptchaSiteKey);
+      } catch {
+        // Behåll frontend-config som fallback om API:t inte svarar.
+      }
+    },
+
+    clearRegistrationCaptchaToken() {
+      this.registrationCaptchaToken = "";
+      if (!this.registrationCaptchaEnabled) return;
+      const turnstile = runtimeWindow.turnstile;
+      if (!turnstile || this.registrationCaptchaWidgetId === null) return;
+      try {
+        turnstile.reset(this.registrationCaptchaWidgetId);
+      } catch {
+        // Ignorera reset-fel och låt nästa render skapa ny widget.
+      }
+    },
+
+    async prepareRegistrationCaptcha() {
+      if (!this.registrationCaptchaEnabled) return;
+      this.registrationCaptchaLoading = true;
+      this.registrationCaptchaLoadError = "";
+      try {
+        await ensureTurnstileScript(runtimeWindow);
+        await this.$nextTick();
+        this.renderRegistrationCaptchaWidget();
+      } catch {
+        this.registrationCaptchaLoadError =
+          "Kunde inte ladda captcha-widget. Ladda om sidan och försök igen.";
+      } finally {
+        this.registrationCaptchaLoading = false;
+      }
+    },
+
+    renderRegistrationCaptchaWidget() {
+      if (!this.registrationCaptchaEnabled) return;
+      const turnstile = runtimeWindow.turnstile;
+      const container = this.$refs?.turnstileWidget;
+      if (!turnstile || typeof turnstile.render !== "function" || !container) return;
+
+      if (this.registrationCaptchaWidgetId !== null) {
+        try {
+          turnstile.remove(this.registrationCaptchaWidgetId);
+        } catch {
+          // Vissa API-versioner kan sakna remove; då återanvänds containern nedan.
+        }
+      }
+      container.innerHTML = "";
+      this.registrationCaptchaWidgetId = turnstile.render(container, {
+        sitekey: this.registrationCaptchaSiteKey,
+        theme: "light",
+        callback: (token) => {
+          this.registrationCaptchaToken = String(token || "").trim();
+          this.registrationErrorMessage = "";
+        },
+        "expired-callback": () => {
+          this.registrationCaptchaToken = "";
+        },
+        "error-callback": () => {
+          this.registrationCaptchaToken = "";
+          this.registrationCaptchaLoadError =
+            "Captcha kunde inte verifieras. Uppdatera sidan och försök igen.";
+        }
+      });
+    },
+
     openRegistration() {
       this.registrationOpen = true;
       this.registrationStep = 1;
       this.registrationErrorMessage = "";
       this.registrationSuccessMessage = "";
       this.registrationAvailabilityMessage = "";
+      this.registrationCaptchaLoadError = "";
+      this.clearRegistrationCaptchaToken();
       this.registrationSubdomainInput = normalizeTenantInput(
         this.registrationSubdomainInput || this.tenantNameInput || ""
       );
@@ -514,6 +657,8 @@ export function createBookingApp(options = {}) {
       this.registrationStep = 1;
       this.registrationErrorMessage = "";
       this.registrationAvailabilityMessage = "";
+      this.registrationCaptchaLoadError = "";
+      this.clearRegistrationCaptchaToken();
     },
 
     async checkRegistrationSubdomain() {
@@ -535,6 +680,7 @@ export function createBookingApp(options = {}) {
         this.registrationSubdomainInput = candidate;
         this.registrationAvailabilityMessage = `Subdomänen ${candidate}.${ROOT_DOMAIN} är ledig.`;
         this.registrationStep = 2;
+        await this.prepareRegistrationCaptcha();
       } catch (error) {
         this.registrationErrorMessage = `Kunde inte kontrollera subdomän (${error?.message || "okänt fel"}).`;
       } finally {

@@ -186,6 +186,15 @@ export function listTenants() {
   return structuredClone(tenants);
 }
 
+export function getCaptchaConfig() {
+  const siteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
+  return {
+    provider: "turnstile",
+    enabled: Boolean(siteKey),
+    site_key: siteKey
+  };
+}
+
 export function createTenant(payload = {}) {
   const tenantId = String(payload.tenant_id || "")
     .trim()

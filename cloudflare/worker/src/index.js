@@ -988,6 +988,19 @@ async function handleRequest(request, env) {
       return json({ tenants }, 200, headers);
     }
 
+    if (method === "GET" && url.pathname === "/api/public/captcha-config") {
+      const siteKey = String(env.TURNSTILE_SITE_KEY || "").trim();
+      return json(
+        {
+          provider: "turnstile",
+          enabled: Boolean(siteKey),
+          site_key: siteKey
+        },
+        200,
+        headers
+      );
+    }
+
     if (method === "GET" && url.pathname === "/api/public/subdomain-availability") {
       const subdomain = normalizeTenantId(url.searchParams.get("subdomain") || "");
       const availability = await isSubdomainAvailable(db, subdomain);

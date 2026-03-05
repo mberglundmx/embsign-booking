@@ -22,6 +22,7 @@ För backend-anslutning:
 - `VITE_API_BASE` (standard: `/api`)
 - `VITE_ROOT_DOMAIN` (standard: `bokningsportal.app`)
 - `VITE_RFID_UID` (demo-UID för POS-login)
+- `VITE_TURNSTILE_SITE_KEY` (site key för Turnstile-widget i registreringsflödet)
 - `VITE_USE_MOCKS=true` för att köra med lokala mocks istället.
 
 RFID i POS-läge:

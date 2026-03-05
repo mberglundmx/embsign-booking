@@ -150,6 +150,7 @@ Valfria env vars:
 
 Sätt följande secrets/vars i Cloudflare:
 
+- `TURNSTILE_SITE_KEY` (publik site key till frontend via `/api/public/captcha-config`)
 - `TURNSTILE_SECRET` (captcha-verifiering)
 - `RESEND_API_KEY` (e-post via Resend)
 - `EMAIL_FROM` (avsändaradress)

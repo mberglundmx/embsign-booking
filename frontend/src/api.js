@@ -174,6 +174,10 @@ export async function listTenants() {
   return data.tenants ?? [];
 }
 
+export async function getCaptchaConfig() {
+  return request("/public/captcha-config", {}, { tenantRequired: false });
+}
+
 export async function createTenant(payload) {
   return request(
     "/public/tenants",
