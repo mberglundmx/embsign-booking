@@ -25,7 +25,7 @@ const DEPLOY_AUTO_RELOAD_ENABLED = import.meta.env.VITE_AUTO_RELOAD_ON_DEPLOY !=
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
 const TURNSTILE_SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 const CAPTCHA_CONFIG_PATH = "/public/captcha-config";
-const AGENT_DEBUG_LOG_PATH = "/opt/cursor/logs/debug.log";
+const CAPTCHA_DEBUG_ENABLED = import.meta.env.VITE_CAPTCHA_DEBUG === "true";
 const DEFAULT_TENANT_ID =
   Boolean(import.meta.vitest) || import.meta.env?.MODE === "test" || import.meta.env?.VITEST === "true"
     ? "test-brf"
@@ -35,17 +35,11 @@ let apiPromise = null;
 let turnstileScriptPromise = null;
 
 function emitCaptchaDebugLog(payload = {}) {
+  if (!CAPTCHA_DEBUG_ENABLED) return;
   const entry = {
     ...payload,
     timestamp: Date.now()
   };
-  // #region agent log
-  if (import.meta.env.MODE === "test" && typeof process !== "undefined" && process?.versions?.node) {
-    import("node:fs")
-      .then((fs) => fs.appendFileSync(AGENT_DEBUG_LOG_PATH, `${JSON.stringify(entry)}\n`))
-      .catch(() => {});
-  }
-  // #endregion
   console.info("[captcha-debug]", entry);
 }
 
@@ -457,6 +451,7 @@ export function createBookingApp(options = {}) {
     registrationEmailInput: "",
     registrationOrgNumberInput: "",
     registrationCaptchaToken: "",
+    showCaptchaDiagnostics: CAPTCHA_DEBUG_ENABLED,
     registrationCaptchaProvider: "turnstile",
     registrationCaptchaEnabled: Boolean(TURNSTILE_SITE_KEY),
     registrationCaptchaSiteKey: TURNSTILE_SITE_KEY,
@@ -973,17 +968,37 @@ export function createBookingApp(options = {}) {
           this.passwordInput = result.development_preview.password;
         }
       } catch (error) {
-        if (error?.message === "subdomain_taken") {
+        const errorMessage = String(error?.message || "");
+        if (errorMessage === "subdomain_taken") {
           this.registrationErrorMessage = "Subdomänen blev upptagen. Prova en annan.";
           this.registrationStep = 1;
-        } else if (error?.message === "captcha_failed") {
-          this.registrationErrorMessage = "Captcha-verifiering misslyckades.";
+        } else if (errorMessage.startsWith("captcha_failed")) {
+          const reason = errorMessage.split(":")[1] || "";
+          this.registrationErrorMessage = this.getCaptchaFailureMessage(reason);
         } else {
           this.registrationErrorMessage = "Registreringen misslyckades just nu. Försök igen.";
         }
       } finally {
         this.tenantLoading = false;
       }
+    },
+
+    getCaptchaFailureMessage(reasonCode) {
+      const reason = String(reasonCode || "").trim();
+      if (reason === "invalid-input-secret" || reason === "missing-input-secret") {
+        return "Turnstile är felkonfigurerad i backend (kontrollera TURNSTILE_SECRET).";
+      }
+      if (
+        reason === "invalid-input-response" ||
+        reason === "missing-input-response" ||
+        reason === "timeout-or-duplicate"
+      ) {
+        return "Turnstile-verifieringen blev ogiltig eller gick ut. Försök igen.";
+      }
+      if (reason === "bad-request" || reason === "internal-error") {
+        return "Turnstile-verifieringen misslyckades tillfälligt. Försök igen.";
+      }
+      return "Turnstile-verifieringen misslyckades.";
     },
 
     get selectedResource() {

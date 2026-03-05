@@ -832,11 +832,16 @@ async function deleteTenant(db, tenantId) {
 
 async function verifyCaptcha(env, captchaToken, remoteIp) {
   const token = String(captchaToken || "").trim();
-  if (!token) return false;
+  if (!token) {
+    return { success: false, reason: "missing-input-response" };
+  }
   const secret = String(env.TURNSTILE_SECRET || "").trim();
   if (!secret) {
     const allowBypass = String(env.DEV_CAPTCHA_BYPASS || "false") === "true";
-    return allowBypass && token === "dev-ok";
+    if (allowBypass && token === "dev-ok") {
+      return { success: true, reason: "dev-bypass" };
+    }
+    return { success: false, reason: "missing-input-secret" };
   }
   const body = new URLSearchParams();
   body.set("secret", secret);
@@ -849,9 +854,19 @@ async function verifyCaptcha(env, captchaToken, remoteIp) {
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: body.toString()
   });
-  if (!response.ok) return false;
+  if (!response.ok) {
+    return { success: false, reason: `siteverify_http_${response.status}` };
+  }
   const result = await response.json();
-  return Boolean(result?.success);
+  const success = Boolean(result?.success);
+  if (success) {
+    return { success: true, reason: "ok" };
+  }
+  const errorCodes = Array.isArray(result?.["error-codes"]) ? result["error-codes"] : [];
+  return {
+    success: false,
+    reason: String(errorCodes[0] || "unsuccessful")
+  };
 }
 
 function buildTenantLoginUrl(tenantId, rootDomain) {
@@ -1047,13 +1062,13 @@ async function handleRequest(request, env) {
       if (!availability.available) {
         return errorResponse(409, "subdomain_taken");
       }
-      const captchaOk = await verifyCaptcha(
+      const captchaResult = await verifyCaptcha(
         env,
         captchaToken,
         request.headers.get("cf-connecting-ip") || ""
       );
-      if (!captchaOk) {
-        return errorResponse(400, "captcha_failed");
+      if (!captchaResult.success) {
+        return errorResponse(400, `captcha_failed:${captchaResult.reason}`);
       }
 
       const created = await createTenantRecord(
