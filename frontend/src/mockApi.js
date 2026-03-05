@@ -5,6 +5,7 @@ const initialResources = [
     id: 1,
     name: "Tvättstuga 1",
     booking_type: "time-slot",
+    category: "laundry",
     max_future_days: 14,
     min_future_days: 0,
     price_cents: 0,
@@ -14,6 +15,7 @@ const initialResources = [
     id: 2,
     name: "Tvättstuga 2",
     booking_type: "full-day",
+    category: "laundry",
     max_future_days: 30,
     min_future_days: 0,
     price_cents: 0,
@@ -23,9 +25,12 @@ const initialResources = [
     id: 3,
     name: "Gästlägenhet",
     booking_type: "full-day",
+    category: "guest_apartment",
     max_future_days: 90,
     min_future_days: 3,
-    price_cents: 25000,
+    price_weekday_cents: 20000,
+    price_weekend_cents: 30000,
+    price_cents: 20000,
     is_billable: true
   }
 ];
@@ -99,10 +104,22 @@ function mapBooking(booking) {
     end_time: booking.end_time,
     is_billable: booking.is_billable,
     booking_type: resource?.booking_type ?? "time-slot",
-    price_cents: resource?.price_cents ?? 0,
+    price_cents: getResourcePriceCentsForStart(resource, booking.start_time),
     entry_type: "booking",
     blocked_reason: null
   };
+}
+
+function getResourcePriceCentsForStart(resource, startTime) {
+  if (!resource) return 0;
+  const weekdayPrice = Number(resource.price_weekday_cents ?? resource.price_cents ?? 0);
+  const weekendPrice = Number(resource.price_weekend_cents ?? weekdayPrice);
+  const date = new Date(startTime);
+  const day = date.getUTCDay();
+  const isWeekend = day === 0 || day === 6;
+  if (isWeekend && weekendPrice > 0) return weekendPrice;
+  if (weekdayPrice > 0) return weekdayPrice;
+  return Number(resource.price_cents ?? 0);
 }
 
 function mapBlock(block) {

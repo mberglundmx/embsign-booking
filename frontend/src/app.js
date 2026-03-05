@@ -107,6 +107,11 @@ function formatDateLong(dateString) {
   }).format(date);
 }
 
+function formatCompactDate(dateString) {
+  const date = parseLocalDateString(dateString);
+  return `${date.getDate()}/${date.getMonth() + 1}`;
+}
+
 function formatTimeRange(startIso, endIso) {
   return formatWallClockRange(startIso, endIso);
 }
@@ -136,6 +141,7 @@ const CONFIGURED_FRONTEND_ORIGINS_HOSTNAME = getHostnameFromFrontendOrigins(RAW_
 
 function normalizeResources(resources) {
   return resources.map((resource) => ({
+    category: String(resource.category ?? "").trim(),
     id: resource.id,
     name: resource.name,
     bookingType: resource.booking_type ?? resource.bookingType ?? "time-slot",
@@ -147,11 +153,31 @@ function normalizeResources(resources) {
       typeof resource.min_future_days === "number"
         ? resource.min_future_days
         : (resource.minAdvanceDays ?? 0),
+    priceWeekday:
+      typeof resource.price_weekday_cents === "number"
+        ? Math.round(resource.price_weekday_cents / 100)
+        : (typeof resource.price_cents === "number"
+            ? Math.round(resource.price_cents / 100)
+            : (resource.price ?? 0)),
+    priceWeekend:
+      typeof resource.price_weekend_cents === "number"
+        ? Math.round(resource.price_weekend_cents / 100)
+        : (typeof resource.price_weekday_cents === "number"
+            ? Math.round(resource.price_weekday_cents / 100)
+            : (typeof resource.price_cents === "number"
+                ? Math.round(resource.price_cents / 100)
+                : (resource.price ?? 0))),
     price:
-      typeof resource.price_cents === "number"
-        ? Math.round(resource.price_cents / 100)
-        : (resource.price ?? 0),
-    isBillable: resource.is_billable ?? resource.isBillable ?? false
+      typeof resource.price_weekday_cents === "number"
+        ? Math.round(resource.price_weekday_cents / 100)
+        : (typeof resource.price_cents === "number"
+            ? Math.round(resource.price_cents / 100)
+            : (resource.price ?? 0)),
+    isBillable: resource.is_billable ?? resource.isBillable ?? false,
+    maxBookings:
+      typeof resource.max_bookings === "number"
+        ? resource.max_bookings
+        : (resource.maxBookings ?? 2)
   }));
 }
 
@@ -455,7 +481,7 @@ export function createBookingApp(options = {}) {
       const dayIndex = date.getDay();
       return {
         weekday: new Intl.DateTimeFormat("sv-SE", { weekday: "long" }).format(date),
-        dateLabel: new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "long" }).format(date),
+        dateLabel: formatCompactDate(dateString),
         isSaturday: dayIndex === 6,
         isSunday: dayIndex === 0
       };
@@ -828,7 +854,7 @@ export function createBookingApp(options = {}) {
 
     openConfirmBooking(payload) {
       const resource = this.resources.find((item) => item.id === payload.resourceId);
-      const price = resource?.price ?? 0;
+      const price = this.getResourcePriceForDate(resource, payload.date);
       const isFullDay = payload.type === "full-day";
       const targetApartmentId = this.getBookingApartmentId();
       const targetLabel = this.isAdmin ? ` åt ${targetApartmentId || "vald användare"}` : "";
@@ -883,6 +909,51 @@ export function createBookingApp(options = {}) {
 
     closeConfirm() {
       this.confirm.open = false;
+    },
+
+    getActionErrorMessage(error, action, payload) {
+      const detail = String(error?.message ?? "").trim();
+      const resource = this.resources.find((item) => item.id === payload?.resourceId);
+
+      if (detail === "max_bookings_reached") {
+        if (typeof resource?.maxBookings === "number") {
+          return `Du kan max ha ${resource.maxBookings} aktiva bokningar samtidigt för ${resource.name}.`;
+        }
+        return "Du har nått max antal aktiva bokningar för det här bokningsobjektet.";
+      }
+
+      if (detail === "outside_booking_window") {
+        const minDays = resource?.minAdvanceDays;
+        const maxDays = resource?.maxAdvanceDays;
+        if (typeof minDays === "number" && typeof maxDays === "number") {
+          const maxBookableDay = Math.max(minDays, maxDays - 1);
+          if (minDays > 0) {
+            return `Det går att boka ${resource?.name ?? "objektet"} mellan ${minDays} och ${maxBookableDay} dagar framåt.`;
+          }
+          return `Det går att boka ${resource?.name ?? "objektet"} upp till ${maxBookableDay} dagar framåt.`;
+        }
+        return "Vald tid ligger utanför tillåtet bokningsfönster.";
+      }
+
+      if (detail === "overlap") {
+        return action === "cancel"
+          ? "Bokningen kunde inte avbokas eftersom den redan är ändrad."
+          : "Tiden är inte ledig längre eller krockar med en annan bokning.";
+      }
+
+      if (detail === "forbidden_resource") {
+        return "Du har inte behörighet att boka det här objektet.";
+      }
+
+      if (detail === "forbidden") {
+        return "Du har inte behörighet att utföra den här åtgärden.";
+      }
+
+      if (detail === "invalid_time_range") {
+        return "Start- och sluttid är ogiltig för vald åtgärd.";
+      }
+
+      return "Kunde inte slutföra åtgärden.";
     },
 
     async confirmAction() {
@@ -965,14 +1036,14 @@ export function createBookingApp(options = {}) {
           this.showError("Ange användar-ID att boka åt.");
           return;
         }
-        this.showError("Kunde inte slutföra åtgärden.");
+        this.showError(this.getActionErrorMessage(error, action, payload));
       } finally {
         this.loading = false;
       }
     },
 
     getDayLabel(dateString) {
-      return this.formatDay(dateString);
+      return formatCompactDate(dateString);
     },
 
     getFullDayCalendar() {
@@ -1006,9 +1077,41 @@ export function createBookingApp(options = {}) {
     },
 
     getSelectedResourcePrice() {
-      return this.selectedResource?.isBillable && this.selectedResource?.price > 0
-        ? this.selectedResource.price
-        : 0;
+      return this.getResourcePriceForDate(this.selectedResource);
+    },
+
+    getSelectedResourcePriceForDate(dateString) {
+      return this.getResourcePriceForDate(this.selectedResource, dateString);
+    },
+
+    getResourcePriceForDate(resource, dateString = "") {
+      const weekdayPrice = Number(resource.priceWeekday ?? resource.price ?? 0);
+      const weekendPrice = Number(resource.priceWeekend ?? weekdayPrice);
+      const hasBillableFlag =
+        resource?.isBillable ?? (weekdayPrice > 0 || weekendPrice > 0 || Number(resource.price ?? 0) > 0);
+      if (!hasBillableFlag) return 0;
+      if (!dateString) {
+        return weekdayPrice > 0 ? weekdayPrice : 0;
+      }
+      const date = parseLocalDateString(dateString);
+      const day = date.getDay();
+      const isWeekend = day === 0 || day === 6;
+      const candidatePrice = isWeekend ? weekendPrice : weekdayPrice;
+      if (candidatePrice > 0) return candidatePrice;
+      return weekdayPrice > 0 ? weekdayPrice : 0;
+    },
+
+    getResourcePriceLabel(resource) {
+      const weekdayPrice = Number(resource.priceWeekday ?? resource.price ?? 0);
+      const weekendPrice = Number(resource.priceWeekend ?? weekdayPrice);
+      const hasBillableFlag =
+        resource?.isBillable ?? (weekdayPrice > 0 || weekendPrice > 0 || Number(resource.price ?? 0) > 0);
+      if (!hasBillableFlag) return "";
+      if (weekdayPrice <= 0 && weekendPrice <= 0) return "";
+      if (weekdayPrice === weekendPrice) {
+        return `Debitering: ${weekdayPrice} kr`;
+      }
+      return `Debitering: vardag ${weekdayPrice} kr, helg ${weekendPrice} kr`;
     },
 
     getCompactSlotLabel(label) {

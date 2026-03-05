@@ -73,6 +73,12 @@ def _normalize_max_bookings(raw: object) -> int:
     return value
 
 
+def _normalize_category(raw: object) -> str:
+    if raw is None:
+        return ""
+    return str(raw).strip()
+
+
 def _normalize_min_future_days(raw: object) -> int:
     try:
         value = int(raw)  # type: ignore[arg-type]
@@ -131,6 +137,56 @@ def _future_booking_count(conn, apartment_id: str, resource_id: int, now_iso: st
         WHERE apartment_id = ? AND resource_id = ? AND end_time > ?
         """,
         (apartment_id, resource_id, now_iso),
+    ).fetchone()
+    if row is None:
+        return 0
+    return int(row["count"])
+
+
+def _get_resource_booking_scope(conn, resource_id: int) -> tuple[int, str] | None:
+    row = conn.execute(
+        "SELECT max_bookings, category FROM resources WHERE id = ? AND is_active = 1",
+        (resource_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return _normalize_max_bookings(row["max_bookings"]), _normalize_category(row["category"])
+
+
+def _get_category_max_bookings(conn, category: str) -> int | None:
+    normalized_category = _normalize_category(category)
+    if not normalized_category:
+        return None
+    row = conn.execute(
+        """
+        SELECT MIN(max_bookings) AS min_max_bookings
+        FROM resources
+        WHERE is_active = 1 AND LOWER(TRIM(COALESCE(category, ''))) = ?
+        """,
+        (normalized_category.casefold(),),
+    ).fetchone()
+    if row is None or row["min_max_bookings"] is None:
+        return None
+    return _normalize_max_bookings(row["min_max_bookings"])
+
+
+def _future_booking_count_with_scope(
+    conn, apartment_id: str, resource_id: int, category: str, now_iso: str
+) -> int:
+    normalized_category = _normalize_category(category)
+    if not normalized_category:
+        return _future_booking_count(conn, apartment_id, resource_id, now_iso)
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM bookings b
+        JOIN resources r ON r.id = b.resource_id
+        WHERE b.apartment_id = ?
+          AND b.end_time > ?
+          AND r.is_active = 1
+          AND LOWER(TRIM(COALESCE(r.category, ''))) = ?
+        """,
+        (apartment_id, now_iso, normalized_category.casefold()),
     ).fetchone()
     if row is None:
         return 0
@@ -329,9 +385,13 @@ def create_booking(
     start_dt, end_dt, start_iso, end_iso = _normalize_range(start_time, end_time)
     if has_overlap(conn, resource_id, apartment_id, to_iso(start_dt), to_iso(end_dt)):
         raise ValueError("overlap")
-    max_bookings = _get_resource_max_bookings(conn, resource_id)
-    if max_bookings is None:
+    booking_scope = _get_resource_booking_scope(conn, resource_id)
+    if booking_scope is None:
         raise PermissionError("resource_forbidden")
+    max_bookings, category = booking_scope
+    category_limit = _get_category_max_bookings(conn, category)
+    if category_limit is not None:
+        max_bookings = min(max_bookings, category_limit)
     min_future_days = _get_resource_min_future_days(conn, resource_id)
     max_future_days = _get_resource_max_future_days(conn, resource_id)
     if min_future_days is None or max_future_days is None:
@@ -343,7 +403,10 @@ def create_booking(
             raise ValueError("outside_booking_window")
     if end_dt > now_utc:
         now_iso = to_iso(now_utc)
-        if _future_booking_count(conn, apartment_id, resource_id, now_iso) >= max_bookings:
+        if (
+            _future_booking_count_with_scope(conn, apartment_id, resource_id, category, now_iso)
+            >= max_bookings
+        ):
             raise ValueError("max_bookings")
     cursor = conn.execute(
         """
@@ -523,7 +586,15 @@ def admin_calendar(conn) -> List[Dict[str, str]]:
     rows = conn.execute(
         """
         SELECT b.id, b.apartment_id, b.resource_id, b.start_time, b.end_time,
-               b.is_billable, r.name as resource_name, r.booking_type, r.price_cents,
+               b.is_billable, r.name as resource_name, r.booking_type,
+               CASE
+                   WHEN CAST(strftime('%w', b.start_time) AS INTEGER) IN (0, 6)
+                        AND COALESCE(r.price_weekend_cents, 0) > 0
+                       THEN r.price_weekend_cents
+                   WHEN COALESCE(r.price_weekday_cents, 0) > 0
+                       THEN r.price_weekday_cents
+                   ELSE r.price_cents
+               END AS price_cents,
                'booking' AS entry_type, '' AS blocked_reason
         FROM bookings b
         JOIN resources r ON r.id = b.resource_id

@@ -10,6 +10,7 @@ def _insert_resource(
     *,
     name: str,
     booking_type: str = "time-slot",
+    category: str = "",
     slot_duration_minutes: int = 60,
     slot_start_hour: int = 6,
     slot_end_hour: int = 22,
@@ -21,6 +22,7 @@ def _insert_resource(
         INSERT INTO resources (
             name,
             booking_type,
+            category,
             slot_duration_minutes,
             slot_start_hour,
             slot_end_hour,
@@ -30,11 +32,12 @@ def _insert_resource(
             price_cents,
             is_billable
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, 0)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0)
         """,
         (
             name,
             booking_type,
+            category,
             slot_duration_minutes,
             slot_start_hour,
             slot_end_hour,
@@ -131,11 +134,11 @@ def test_resource_access_rules_and_admin_bypass(db_conn, seeded_apartment):
     assert booking.can_access_resource(db_conn, 999999, seeded_apartment, is_admin=False) is False
 
 
-def test_create_booking_raises_when_max_bookings_config_missing(
+def test_create_booking_raises_when_booking_scope_missing(
     db_conn, seeded_apartment, monkeypatch
 ):
     monkeypatch.setattr(booking, "can_access_resource", lambda *args, **kwargs: True)
-    monkeypatch.setattr(booking, "_get_resource_max_bookings", lambda *args, **kwargs: None)
+    monkeypatch.setattr(booking, "_get_resource_booking_scope", lambda *args, **kwargs: None)
     monkeypatch.setattr(booking, "has_overlap", lambda *args, **kwargs: False)
 
     with pytest.raises(PermissionError, match="resource_forbidden"):
@@ -145,6 +148,39 @@ def test_create_booking_raises_when_max_bookings_config_missing(
             resource_id=1,
             start_time="2026-03-01T08:00:00+00:00",
             end_time="2026-03-01T09:00:00+00:00",
+            is_billable=False,
+        )
+
+
+def test_category_max_bookings_uses_lowest_limit_across_category(
+    db_conn, seeded_apartment, monkeypatch
+):
+    monkeypatch.setattr(
+        booking, "_now_utc", lambda: datetime(2026, 2, 1, 9, 0, tzinfo=timezone.utc)
+    )
+    laundry_a = _insert_resource(
+        db_conn, name="Laundry A", booking_type="time-slot", category="laundry", max_bookings=3
+    )
+    laundry_b = _insert_resource(
+        db_conn, name="Laundry B", booking_type="time-slot", category="laundry", max_bookings=1
+    )
+    first_id = booking.create_booking(
+        db_conn,
+        seeded_apartment,
+        resource_id=laundry_a,
+        start_time="2026-02-03T08:00:00+00:00",
+        end_time="2026-02-03T09:00:00+00:00",
+        is_billable=False,
+    )
+    assert first_id > 0
+
+    with pytest.raises(ValueError, match="max_bookings"):
+        booking.create_booking(
+            db_conn,
+            seeded_apartment,
+            resource_id=laundry_b,
+            start_time="2026-02-04T08:00:00+00:00",
+            end_time="2026-02-04T09:00:00+00:00",
             is_billable=False,
         )
 

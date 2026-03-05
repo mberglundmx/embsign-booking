@@ -211,6 +211,7 @@ def list_resources(session=Depends(require_session), conn=Depends(get_db)):
             id,
             name,
             booking_type,
+            category,
             slot_duration_minutes,
             slot_start_hour,
             slot_end_hour,
@@ -219,6 +220,8 @@ def list_resources(session=Depends(require_session), conn=Depends(get_db)):
             max_bookings,
             allow_houses,
             deny_apartment_ids,
+            price_weekday_cents,
+            price_weekend_cents,
             price_cents,
             is_billable
         FROM resources
@@ -245,7 +248,15 @@ def list_bookings(session=Depends(require_session), conn=Depends(get_db)):
     rows = conn.execute(
         """
         SELECT b.id, b.resource_id, b.start_time, b.end_time, b.is_billable,
-               r.name AS resource_name, r.booking_type, r.price_cents
+               r.name AS resource_name, r.booking_type,
+               CASE
+                   WHEN CAST(strftime('%w', b.start_time) AS INTEGER) IN (0, 6)
+                        AND COALESCE(r.price_weekend_cents, 0) > 0
+                       THEN r.price_weekend_cents
+                   WHEN COALESCE(r.price_weekday_cents, 0) > 0
+                       THEN r.price_weekday_cents
+                   ELSE r.price_cents
+               END AS price_cents
         FROM bookings b
         JOIN resources r ON r.id = b.resource_id
         WHERE b.apartment_id = ?

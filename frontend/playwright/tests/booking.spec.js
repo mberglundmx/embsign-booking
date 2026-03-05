@@ -53,8 +53,9 @@ test("Boka och avboka", async ({ page }) => {
   await expect(page.getByTestId("confirm-modal")).toBeVisible();
   await page.getByTestId("confirm-ok").click();
 
+  await page.getByTestId("step-back").click();
+  await expect(page.getByTestId("booking-setup")).toBeVisible();
   await expect(page.getByTestId("booking-list")).toContainText("Tvättstuga");
-  await page.getByTestId("booking-list").locator("summary").click();
 
   await page.getByTestId("cancel-booking").first().click();
   await page.getByTestId("confirm-ok").click();

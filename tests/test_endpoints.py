@@ -332,6 +332,97 @@ def test_book_limits_future_bookings_per_resource(
     assert third_response.json()["detail"] == "max_bookings_reached"
 
 
+def test_book_limits_future_bookings_per_category_with_lowest_limit(
+    client, db_conn, seeded_apartment, seeded_resource, monkeypatch
+):
+    fixed_now = datetime(2026, 2, 1, 9, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(booking, "_now_utc", lambda: fixed_now)
+    db_conn.execute(
+        "UPDATE resources SET category = ?, max_bookings = ? WHERE id = ?",
+        ("laundry", 3, seeded_resource),
+    )
+    second_resource = db_conn.execute(
+        """
+        INSERT INTO resources (
+            name,
+            booking_type,
+            category,
+            slot_duration_minutes,
+            slot_start_hour,
+            slot_end_hour,
+            max_future_days,
+            min_future_days,
+            max_bookings,
+            is_active,
+            price_cents,
+            is_billable
+        )
+        VALUES (?, ?, ?, 60, 6, 22, 30, 0, ?, 1, 0, 0)
+        """,
+        ("Tvattstuga 2", "time-slot", "laundry", 1),
+    ).lastrowid
+    db_conn.commit()
+
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+    first_response = client.post(
+        "/book",
+        json={
+            "apartment_id": seeded_apartment,
+            "resource_id": seeded_resource,
+            "start_time": "2026-02-10T08:00:00+00:00",
+            "end_time": "2026-02-10T09:00:00+00:00",
+            "is_billable": False,
+        },
+        cookies={"session": token},
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        "/book",
+        json={
+            "apartment_id": seeded_apartment,
+            "resource_id": second_resource,
+            "start_time": "2026-02-11T08:00:00+00:00",
+            "end_time": "2026-02-11T09:00:00+00:00",
+            "is_billable": False,
+        },
+        cookies={"session": token},
+    )
+    assert second_response.status_code == 409
+    assert second_response.json()["detail"] == "max_bookings_reached"
+
+
+def test_bookings_uses_weekend_price_for_weekend_dates(
+    client, db_conn, seeded_apartment, seeded_resource
+):
+    db_conn.execute(
+        """
+        UPDATE resources
+        SET price_cents = ?, price_weekday_cents = ?, price_weekend_cents = ?, is_billable = 1
+        WHERE id = ?
+        """,
+        (20000, 20000, 30000, seeded_resource),
+    )
+    db_conn.execute(
+        """
+        INSERT INTO bookings (apartment_id, resource_id, start_time, end_time, is_billable)
+        VALUES (?, ?, ?, ?, 1)
+        """,
+        (
+            seeded_apartment,
+            seeded_resource,
+            "2026-02-07T08:00:00+00:00",
+            "2026-02-07T09:00:00+00:00",
+        ),
+    )
+    db_conn.commit()
+
+    token = create_session(db_conn, seeded_apartment, is_admin=False)
+    response = client.get("/bookings", cookies={"session": token})
+    assert response.status_code == 200
+    assert response.json()["bookings"][0]["price_cents"] == 30000
+
+
 def test_book_rejects_dates_before_min_future_window(
     client, db_conn, seeded_apartment, seeded_resource, monkeypatch
 ):
