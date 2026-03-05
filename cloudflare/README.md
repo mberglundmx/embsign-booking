@@ -121,6 +121,7 @@ Script: `cloudflare/worker/scripts/deploy-with-branch-d1.mjs` (körs via `npm ru
 Funktion:
 
 - Läser branch från `CF_PAGES_BRANCH` / `CF_BRANCH` / `GITHUB_REF_NAME` (eller `--branch=...`).
+- I preview/`versions-upload` prioriteras `CF_PAGES_PULL_REQUEST_ID` för namngivning (`pr-<id>`), så samma PR återanvänder samma D1.
 - Om branch saknas i buildmiljön används fallback:
   - `deploy`-läge: första värdet i `PRODUCTION_BRANCHES` (default `main`)
   - `versions-upload`-läge: `preview-<commit-sha>`

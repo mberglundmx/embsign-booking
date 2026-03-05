@@ -181,6 +181,17 @@ function getShortCommitSha() {
   return "";
 }
 
+function getPullRequestSlug() {
+  const rawId =
+    process.env.CF_PAGES_PULL_REQUEST_ID ||
+    process.env.CF_PULL_REQUEST_ID ||
+    process.env.GITHUB_PR_NUMBER ||
+    "";
+  const normalized = slugifyBranchName(rawId);
+  if (!normalized) return "";
+  return `pr-${normalized}`;
+}
+
 function getProductionBranches() {
   const value = process.env.PRODUCTION_BRANCHES || "main,master,production,prod";
   const items = value
@@ -242,10 +253,14 @@ function findOrCreateDatabase({ databaseName, dryRun }) {
 
 function resolveTargetDatabase({ branchName, dryRun, deployMode }) {
   const normalizedBranch = slugifyBranchName(branchName);
+  const pullRequestSlug = deployMode === "versions-upload" ? getPullRequestSlug() : "";
   const productionBranches = getProductionBranches();
   const fallbackBranch =
     deployMode === "deploy" ? productionBranches.first : `preview-${getShortCommitSha() || "unknown"}`;
-  const branchSlug = normalizedBranch || fallbackBranch;
+  const branchSlug =
+    deployMode === "versions-upload"
+      ? pullRequestSlug || normalizedBranch || fallbackBranch
+      : normalizedBranch || fallbackBranch;
   const isProductionBranch = productionBranches.set.has(branchSlug);
   const databaseName = resolveTargetDatabaseName({ branchSlug, isProductionBranch });
   const { databaseId, created } = findOrCreateDatabase({ databaseName, dryRun });
