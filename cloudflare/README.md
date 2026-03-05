@@ -132,6 +132,7 @@ Funktion:
   - återanvänder DB om den redan finns
   - skapar DB om den saknas (gäller även produktion enligt önskat beteende)
 - Skapar temporär wrangler-konfig med konkret `database_id` så deploy inte faller på `code: 10021`.
+- Vid deploy injiceras även runtime-`vars` från buildmiljön för nycklar som `TURNSTILE_SITE_KEY` och `ROOT_DOMAIN` (utan att skriva ut värden i logg).
 
 Exempel:
 
@@ -139,6 +140,11 @@ Exempel:
 - Deploy: `npm run deploy:auto-d1`
 - Deploy (klassisk): `npm run deploy:auto-d1:deploy`
 - Snabbtest lokalt (utan Cloudflare build-loggar): `CF_PAGES_PULL_REQUEST_ID=123 node cloudflare/worker/scripts/deploy-with-branch-d1.mjs --deploy-mode=versions-upload --dry-run`
+
+Felsökning captcha i preview:
+
+- `curl -i "https://<pages-preview>/api/public/captcha-config"`
+- Om svaret innehåller `"reason":"missing_site_key"` saknas `TURNSTILE_SITE_KEY` i just Worker-runtime för den preview-versionen.
 
 Valfria env vars:
 

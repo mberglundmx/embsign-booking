@@ -338,6 +338,26 @@ function createResolvedWranglerConfig({ databaseId, databaseName }) {
     parsed.main = path.relative(WORKER_DIR, absoluteMain).replace(/\\/g, "/");
   }
 
+  const existingVars = typeof parsed.vars === "object" && parsed.vars ? parsed.vars : {};
+  const injectedVars = {};
+  const forwardableVarNames = [
+    "TURNSTILE_SITE_KEY",
+    "ROOT_DOMAIN",
+    "DEV_CAPTCHA_BYPASS",
+    "DEV_EMAIL_INLINE_RESPONSE",
+    "PUBLIC_API_BASE"
+  ];
+  for (const key of forwardableVarNames) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      injectedVars[key] = value;
+    }
+  }
+  parsed.vars = {
+    ...existingVars,
+    ...injectedVars
+  };
+
   parsed.d1_databases = d1.map((entry, index) => {
     if (index !== 0) return entry;
     return {
@@ -351,6 +371,8 @@ function createResolvedWranglerConfig({ databaseId, databaseName }) {
 
   const tempPath = path.resolve(WORKER_DIR, `.wrangler.generated.${process.pid}.json`);
   fs.writeFileSync(tempPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  const injectedKeys = Object.keys(injectedVars);
+  console.log(`[vars] injected=${injectedKeys.length ? injectedKeys.join(",") : "none"}`);
   return tempPath;
 }
 
