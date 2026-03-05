@@ -441,6 +441,87 @@ describe("bookingApp", () => {
     );
   });
 
+  it("submitRegistration mappar backend-detaljer till tydliga felmeddelanden", async () => {
+    const cases = [
+      {
+        detail: "subdomain_taken",
+        expectedMessage: "Subdomänen blev upptagen. Prova en annan.",
+        expectedStep: 1
+      },
+      {
+        detail: "invalid_subdomain",
+        expectedMessage: "Subdomänen är ogiltig. Använd a-z, 0-9 och bindestreck.",
+        expectedStep: 1
+      },
+      {
+        detail: "invalid_association_name",
+        expectedMessage: "Föreningens namn är ogiltigt. Kontrollera fältet och försök igen.",
+        expectedStep: 2
+      },
+      {
+        detail: "invalid_email",
+        expectedMessage: "E-postadressen är ogiltig.",
+        expectedStep: 2
+      },
+      {
+        detail: "invalid_organization_number",
+        expectedMessage: "Organisationsnumret är ogiltigt. Ange 10-12 siffror.",
+        expectedStep: 2
+      },
+      {
+        detail: "captcha_failed:missing-input-response",
+        expectedMessage: "Turnstile-verifieringen blev ogiltig eller gick ut. Försök igen.",
+        expectedStep: 2
+      },
+      {
+        detail: "email_not_configured",
+        expectedMessage:
+          "Registreringen är tillfälligt otillgänglig: e-postleverans är inte konfigurerad.",
+        expectedStep: 2
+      },
+      {
+        detail: "email_delivery_failed",
+        expectedMessage: "Kunde inte skicka e-post med inloggningsuppgifter. Försök igen senare.",
+        expectedStep: 2
+      },
+      {
+        detail: "missing_d1_binding",
+        expectedMessage: "Registreringen är tillfälligt otillgänglig (databas saknas i miljön).",
+        expectedStep: 2
+      },
+      {
+        detail: "internal_error",
+        expectedMessage: "Ett internt fel uppstod vid registrering. Försök igen.",
+        expectedStep: 2
+      },
+      {
+        detail: "unknown_error_code",
+        expectedMessage: "Registreringen misslyckades just nu. Försök igen.",
+        expectedStep: 2
+      }
+    ];
+
+    for (const testCase of cases) {
+      const { app } = createApp({
+        apiOverrides: {
+          registerTenant: vi.fn().mockRejectedValue(Object.assign(new Error(testCase.detail), { status: 400 }))
+        }
+      });
+      app.registrationStep = 2;
+      app.registrationSubdomainInput = "brf-solglantan";
+      app.registrationAssociationName = "BRF Solgläntan";
+      app.registrationEmailInput = "styrelsen@example.se";
+      app.registrationOrgNumberInput = "7696123456";
+      app.registrationCaptchaEnabled = true;
+      app.registrationCaptchaToken = "token-ok";
+
+      await app.submitRegistration();
+
+      expect(app.registrationErrorMessage).toBe(testCase.expectedMessage);
+      expect(app.registrationStep).toBe(testCase.expectedStep);
+    }
+  });
+
   it("adminlogin aktiverar adminläge och hämtar adminkalender", async () => {
     const { app, api } = createApp({
       apiOverrides: {

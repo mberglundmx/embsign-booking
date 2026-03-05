@@ -949,6 +949,21 @@ export function createBookingApp(options = {}) {
       this.registrationErrorMessage = "";
       this.registrationSuccessMessage = "";
       this.tenantLoading = true;
+      // #region agent log
+      emitCaptchaDebugLog({
+        hypothesisId: "R1",
+        location: "frontend/src/app.js:submitRegistration",
+        message: "registration submit request",
+        data: {
+          hasSubdomain: Boolean(subdomain),
+          hasAssociationName: Boolean(associationName),
+          hasEmail: Boolean(email),
+          hasOrganizationNumber: Boolean(organizationNumber),
+          captchaEnabled: this.registrationCaptchaEnabled,
+          hasCaptchaToken: Boolean(captchaToken)
+        }
+      });
+      // #endregion
       try {
         const api = await getApiClient();
         const result = await api.registerTenant({
@@ -969,18 +984,106 @@ export function createBookingApp(options = {}) {
         }
       } catch (error) {
         const errorMessage = String(error?.message || "");
-        if (errorMessage === "subdomain_taken") {
-          this.registrationErrorMessage = "Subdomänen blev upptagen. Prova en annan.";
+        // #region agent log
+        emitCaptchaDebugLog({
+          hypothesisId: "R2",
+          location: "frontend/src/app.js:submitRegistration",
+          message: "registration submit failed raw error",
+          data: {
+            detailCode: errorMessage,
+            status: Number.isFinite(error?.status) ? error.status : null
+          }
+        });
+        // #endregion
+        const mapped = this.getRegistrationFailureDetails(errorMessage);
+        this.registrationErrorMessage = mapped.message;
+        if (mapped.resetToStepOne) {
           this.registrationStep = 1;
-        } else if (errorMessage.startsWith("captcha_failed")) {
-          const reason = errorMessage.split(":")[1] || "";
-          this.registrationErrorMessage = this.getCaptchaFailureMessage(reason);
-        } else {
-          this.registrationErrorMessage = "Registreringen misslyckades just nu. Försök igen.";
         }
+        // #region agent log
+        emitCaptchaDebugLog({
+          hypothesisId: "R3",
+          location: "frontend/src/app.js:submitRegistration",
+          message: "registration submit mapped error",
+          data: {
+            detailCode: errorMessage,
+            mappedMessage: mapped.message,
+            resetToStepOne: mapped.resetToStepOne
+          }
+        });
+        // #endregion
       } finally {
         this.tenantLoading = false;
       }
+    },
+
+    getRegistrationFailureDetails(detailCodeRaw) {
+      const detailCode = String(detailCodeRaw || "").trim();
+      if (detailCode === "subdomain_taken") {
+        return {
+          message: "Subdomänen blev upptagen. Prova en annan.",
+          resetToStepOne: true
+        };
+      }
+      if (detailCode === "invalid_subdomain") {
+        return {
+          message: "Subdomänen är ogiltig. Använd a-z, 0-9 och bindestreck.",
+          resetToStepOne: true
+        };
+      }
+      if (detailCode === "invalid_association_name") {
+        return {
+          message: "Föreningens namn är ogiltigt. Kontrollera fältet och försök igen.",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "invalid_email") {
+        return {
+          message: "E-postadressen är ogiltig.",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "invalid_organization_number") {
+        return {
+          message: "Organisationsnumret är ogiltigt. Ange 10-12 siffror.",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode.startsWith("captcha_failed")) {
+        const reason = detailCode.split(":")[1] || "";
+        return {
+          message: this.getCaptchaFailureMessage(reason),
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "email_not_configured") {
+        return {
+          message: "Registreringen är tillfälligt otillgänglig: e-postleverans är inte konfigurerad.",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "email_delivery_failed") {
+        return {
+          message: "Kunde inte skicka e-post med inloggningsuppgifter. Försök igen senare.",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "missing_d1_binding") {
+        return {
+          message: "Registreringen är tillfälligt otillgänglig (databas saknas i miljön).",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "internal_error") {
+        return {
+          message: "Ett internt fel uppstod vid registrering. Försök igen.",
+          resetToStepOne: false
+        };
+      }
+      return {
+        message: "Registreringen misslyckades just nu. Försök igen.",
+        resetToStepOne: false
+      };
     },
 
     getCaptchaFailureMessage(reasonCode) {

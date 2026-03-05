@@ -1540,14 +1540,8 @@ async function handleRequest(request, env) {
 
     return errorResponse(404, "not_found");
   } catch (error) {
-    return json(
-      {
-        detail: "internal_error",
-        message: error?.message || "Unknown error"
-      },
-      500,
-      headers
-    );
+    console.error("[worker] internal_error", error);
+    return json({ detail: "internal_error" }, 500, headers);
   }
 }
 
