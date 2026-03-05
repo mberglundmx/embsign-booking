@@ -69,6 +69,7 @@ Frontend:
 Backend:
 
 - `cd cloudflare/worker && npm run deploy`
+- `cd cloudflare/worker && npm run deploy:auto-d1` (skapa/återanvänd branch-D1 automatiskt)
 - eller från repo-root: `npx wrangler versions upload`
 
 Frontend:
@@ -105,6 +106,32 @@ Det gör att Pages-preview och Worker-preview kommunicerar per branch utan manue
 - Root-konfigurationen `wrangler.jsonc` innehåller D1-binding via env-variabel: `${D1_DATABASE_ID}`.
 - Sätt `D1_DATABASE_ID` i Cloudflare Worker build environment (per environment där ni kör previews/production).
 - Lokalt används separat `cloudflare/worker/wrangler.local.toml`.
+
+### Branch-specifik D1 (auto-provisionering)
+
+Script: `cloudflare/worker/scripts/deploy-with-branch-d1.mjs` (körs via `npm run deploy:auto-d1` i `cloudflare/worker/`).
+
+Funktion:
+
+- Läser branch från `CF_PAGES_BRANCH` / `CF_BRANCH` / `GITHUB_REF_NAME` (eller `--branch=...`).
+- På icke-produktionsbrancher:
+  - använder D1-namn `booking-pr-<branch-slug>` (kan ändras via `D1_DATABASE_PREFIX`)
+  - skapar DB endast om den saknas
+  - återanvänder DB om den redan finns
+- På produktionsbrancher (`main,master,production,prod`):
+  - skapar **aldrig** ny DB
+  - kräver explicit `D1_DATABASE_ID` i miljön
+
+Exempel:
+
+- Dry-run: `npm run deploy:auto-d1 -- --dry-run --branch=feature/x`
+- Deploy: `npm run deploy:auto-d1`
+
+Valfria env vars:
+
+- `D1_DATABASE_PREFIX` (default `booking-pr`)
+- `PRODUCTION_BRANCHES` (komma-separerad lista)
+- `D1_DATABASE_NAME` (default `brf-booking-d1`, används för produktionsbranch)
 
 ### E-post/captcha-konfig i Worker (Dashboard secrets/vars)
 
