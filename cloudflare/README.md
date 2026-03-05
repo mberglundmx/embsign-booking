@@ -105,7 +105,8 @@ Det gör att Pages-preview och Worker-preview kommunicerar per branch utan manue
 ### Viktigt för Cloudflare deploy (fix för tidigare build-fel)
 
 - Root-konfigurationen `wrangler.jsonc` innehåller D1-binding via env-variabel: `${D1_DATABASE_ID}`.
-- Sätt `D1_DATABASE_ID` i Cloudflare Worker build environment (per environment där ni kör previews/production).
+- Om ni kör `npx wrangler versions upload` direkt behöver `D1_DATABASE_ID` vara satt i build-miljön.
+- Om ni kör `npm run deploy:auto-d1` behövs inte detta; scriptet injicerar konkret `database_id` automatiskt.
 - Lokalt används separat `cloudflare/worker/wrangler.local.toml`.
 
 ### Branch-specifik D1 (auto-provisionering)
