@@ -73,6 +73,11 @@ Backend:
 - `cd cloudflare/worker && npm run deploy:auto-d1:deploy` (samma D1-logik men med `wrangler deploy`)
 - från repo-root: `npx wrangler versions upload` fungerar bara om `D1_DATABASE_ID` redan är satt.
 
+Cloudflare Workers Builds (repo-kopplad):
+
+- Preview deploy command: `node cloudflare/worker/scripts/deploy-with-branch-d1.mjs --deploy-mode=versions-upload`
+- Production deploy command: `node cloudflare/worker/scripts/deploy-with-branch-d1.mjs --deploy-mode=deploy`
+
 Frontend:
 
 - `cd frontend && npm run build && npx wrangler pages deploy dist`

@@ -68,14 +68,26 @@ function getBranchName() {
   const explicit = getArgValue("branch");
   if (explicit) return explicit;
 
-  return (
+  const fromEnv =
     process.env.CF_PAGES_BRANCH ||
     process.env.CF_BRANCH ||
     process.env.GITHUB_HEAD_REF ||
     process.env.GITHUB_REF_NAME ||
     process.env.BRANCH ||
-    ""
-  );
+    "";
+  if (fromEnv) return fromEnv;
+
+  const gitResult = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd: WORKER_DIR,
+    encoding: "utf8",
+    stdio: "pipe"
+  });
+  if (gitResult.status === 0) {
+    const gitBranch = String(gitResult.stdout || "").trim();
+    if (gitBranch && gitBranch !== "HEAD") return gitBranch;
+  }
+
+  return "";
 }
 
 function getProductionBranches() {
