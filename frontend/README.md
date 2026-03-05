@@ -74,3 +74,11 @@ npm run cf:pages:deploy
   - Root directory: `frontend`
   - Build command: `npm ci && npm run build`
   - Output directory: `dist`
+
+Build-scriptet genererar `dist/_redirects` automatiskt så att `/api/*` proxas till rätt Worker-preview.
+
+Valfria env vars för att styra proxy-målet:
+
+- `WORKER_PREVIEW_URL` (full URL, högst prioritet)
+- `WORKER_NAME` (default `embsign-booking`)
+- `WORKER_ACCOUNT_SUBDOMAIN` (default `embsign`)

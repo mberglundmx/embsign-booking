@@ -76,6 +76,15 @@ async function request(path, options = {}, { tenantRequired = true, tenantId: te
   }
 
   if (response.status === 204) return null;
+  const contentType = response.headers?.get?.("content-type") || "";
+  if (contentType && !contentType.includes("application/json")) {
+    const preview = typeof response.text === "function" ? (await response.text()).slice(0, 120) : "";
+    const error = new Error(
+      `unexpected_response_format${preview ? `: ${preview}` : ""}`
+    );
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 }
 

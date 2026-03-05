@@ -92,6 +92,12 @@ I Cloudflare Pages (nytt projekt):
 
 Detta ger en separat `*.pages.dev`-preview per branch/commit.
 
+Frontend-builden genererar `dist/_redirects` med branch-specifik proxy:
+
+- `/api/*` -> `https://<branch-slug>-embsign-booking.embsign.workers.dev/api/:splat`
+
+Det gör att Pages-preview och Worker-preview kommunicerar utan manuell URL-konfig per branch.
+
 ### Viktigt för Cloudflare deploy (fix för tidigare build-fel)
 
 - Root-konfigurationen `wrangler.jsonc` är nu avsiktligt minimal för CI/Workers Builds.
