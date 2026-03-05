@@ -337,7 +337,9 @@ function createResolvedWranglerConfig({ databaseId, databaseName }) {
     return {
       ...entry,
       database_id: databaseId,
-      database_name: databaseName
+      database_name: databaseName,
+      // Den temporära configfilen ligger i WORKER_DIR, så använd lokal migrations-sökväg.
+      migrations_dir: "migrations"
     };
   });
 
