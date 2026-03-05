@@ -54,8 +54,8 @@ Backend:
 
 1. `cd cloudflare/worker`
 2. `npm install`
-3. `npx wrangler d1 migrations apply brf-booking-d1 --local`
-4. `npx wrangler dev`
+3. `npm run d1:migrate:local`
+4. `npm run dev`
 
 Frontend:
 
@@ -68,14 +68,20 @@ Frontend:
 
 Backend:
 
-- `cd cloudflare/worker && npx wrangler deploy`
-- eller från repo-root: `npx wrangler deploy` (använder `wrangler.jsonc`)
+- `cd cloudflare/worker && npm run deploy`
+- eller från repo-root: `npx wrangler versions upload`
 
 Frontend:
 
 - `cd frontend && npm run build && npx wrangler pages deploy dist`
 
-### E-post/captcha-konfig i Worker
+### Viktigt för Cloudflare deploy (fix för tidigare build-fel)
+
+- Root-konfigurationen `wrangler.jsonc` är nu avsiktligt minimal för CI/Workers Builds.
+- D1-binding (`DB`) och secrets ska konfigureras i Cloudflare-projektet (Dashboard/Bindings), inte via placeholder-id i repo.
+- Lokalt används separat `cloudflare/worker/wrangler.local.toml`.
+
+### E-post/captcha-konfig i Worker (Dashboard secrets/vars)
 
 Sätt följande secrets/vars i Cloudflare:
 
