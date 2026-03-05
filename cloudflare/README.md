@@ -138,6 +138,7 @@ Exempel:
 - Dry-run: `npm run deploy:auto-d1 -- --dry-run --branch=feature/x`
 - Deploy: `npm run deploy:auto-d1`
 - Deploy (klassisk): `npm run deploy:auto-d1:deploy`
+- Snabbtest lokalt (utan Cloudflare build-loggar): `CF_PAGES_PULL_REQUEST_ID=123 node cloudflare/worker/scripts/deploy-with-branch-d1.mjs --deploy-mode=versions-upload --dry-run`
 
 Valfria env vars:
 

@@ -327,9 +327,15 @@ function createResolvedWranglerConfig({ databaseId, databaseName }) {
   const raw = fs.readFileSync(ROOT_WRANGLER_CONFIG_TEMPLATE, "utf8");
   const parsed = JSON.parse(raw);
   const d1 = Array.isArray(parsed.d1_databases) ? parsed.d1_databases : [];
+  const templateDir = path.dirname(ROOT_WRANGLER_CONFIG_TEMPLATE);
 
   if (!d1.length) {
     throw new Error("wrangler.jsonc saknar d1_databases-konfiguration.");
+  }
+
+  if (typeof parsed.main === "string" && parsed.main.trim()) {
+    const absoluteMain = path.resolve(templateDir, parsed.main);
+    parsed.main = path.relative(WORKER_DIR, absoluteMain).replace(/\\/g, "/");
   }
 
   parsed.d1_databases = d1.map((entry, index) => {
