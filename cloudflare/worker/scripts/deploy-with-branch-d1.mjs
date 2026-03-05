@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,6 +39,12 @@ function parseJsonFromOutput(output) {
   }
 
   throw new Error(`Kunde inte tolka JSON från Wrangler-output: ${raw.slice(0, 300)}`);
+}
+
+function extractDatabaseList(listJson) {
+  if (Array.isArray(listJson)) return listJson;
+  if (Array.isArray(listJson?.result)) return listJson.result;
+  return [];
 }
 
 function runWrangler(args, options = {}) {
@@ -81,6 +88,48 @@ function getProductionBranches() {
   );
 }
 
+function resolveTargetDatabaseName({ branchSlug, isProductionBranch }) {
+  if (isProductionBranch) {
+    return String(process.env.D1_DATABASE_NAME || "brf-booking-d1").trim();
+  }
+
+  const prefix = String(process.env.D1_DATABASE_PREFIX || "booking-pr").trim();
+  return `${prefix}-${branchSlug}`;
+}
+
+function findOrCreateDatabase({ databaseName, dryRun }) {
+  if (dryRun) {
+    return {
+      databaseId: "dry-run-database-id",
+      created: false
+    };
+  }
+
+  const listOutput = runWrangler(["d1", "list", "--json"], { capture: true });
+  const listJson = parseJsonFromOutput(listOutput);
+  const databases = extractDatabaseList(listJson);
+  const existing = databases.find((item) => item && item.name === databaseName);
+
+  if (existing?.uuid) {
+    return {
+      databaseId: existing.uuid,
+      created: false
+    };
+  }
+
+  const createOutput = runWrangler(["d1", "create", databaseName, "--json"], { capture: true });
+  const createJson = parseJsonFromOutput(createOutput);
+  const createdId = createJson?.uuid || createJson?.result?.uuid;
+  if (!createdId) {
+    throw new Error(`Kunde inte läsa uuid från skapad databas: ${String(createOutput).slice(0, 500)}`);
+  }
+
+  return {
+    databaseId: createdId,
+    created: true
+  };
+}
+
 function resolveTargetDatabase({ branchName, dryRun }) {
   const branchSlug = slugifyBranchName(branchName);
   if (!branchSlug) {
@@ -89,75 +138,56 @@ function resolveTargetDatabase({ branchName, dryRun }) {
 
   const productionBranches = getProductionBranches();
   const isProductionBranch = productionBranches.has(branchSlug);
-
-  if (isProductionBranch) {
-    const productionDbId = String(process.env.D1_DATABASE_ID || "").trim();
-    const productionDbName = String(process.env.D1_DATABASE_NAME || "brf-booking-d1").trim();
-    if (!productionDbId) {
-      throw new Error(
-        `Produktionsbranch (${branchSlug}) får inte auto-skapa D1. Sätt D1_DATABASE_ID i miljön i stället.`
-      );
-    }
-
-    return {
-      branchSlug,
-      isProductionBranch,
-      databaseName: productionDbName,
-      databaseId: productionDbId,
-      created: false,
-      dryRun
-    };
-  }
-
-  const prefix = String(process.env.D1_DATABASE_PREFIX || "booking-pr").trim();
-  const databaseName = `${prefix}-${branchSlug}`;
-
-  if (dryRun) {
-    return {
-      branchSlug,
-      isProductionBranch,
-      databaseName,
-      databaseId: "dry-run-database-id",
-      created: false,
-      dryRun
-    };
-  }
-
-  const listOutput = runWrangler(["d1", "list", "--json"], { capture: true });
-  const listJson = parseJsonFromOutput(listOutput);
-  const databases = Array.isArray(listJson) ? listJson : [];
-  const existing = databases.find((item) => item && item.name === databaseName);
-
-  if (existing?.uuid) {
-    return {
-      branchSlug,
-      isProductionBranch,
-      databaseName,
-      databaseId: existing.uuid,
-      created: false,
-      dryRun
-    };
-  }
-
-  const createOutput = runWrangler(["d1", "create", databaseName, "--json"], { capture: true });
-  const createJson = parseJsonFromOutput(createOutput);
-  const createdId = createJson?.uuid;
-  if (!createdId) {
-    throw new Error(`Kunde inte läsa uuid från skapad databas: ${String(createOutput).slice(0, 500)}`);
-  }
+  const databaseName = resolveTargetDatabaseName({ branchSlug, isProductionBranch });
+  const { databaseId, created } = findOrCreateDatabase({ databaseName, dryRun });
 
   return {
     branchSlug,
     isProductionBranch,
     databaseName,
-    databaseId: createdId,
-    created: true,
+    databaseId,
+    created,
     dryRun
   };
 }
 
+function getDeployMode() {
+  const explicit = getArgValue("deploy-mode");
+  if (explicit) return explicit;
+  if (hasFlag("deploy")) return "deploy";
+  return "versions-upload";
+}
+
+function createResolvedWranglerConfig({ databaseId, databaseName }) {
+  const raw = fs.readFileSync(ROOT_WRANGLER_CONFIG_TEMPLATE, "utf8");
+  const parsed = JSON.parse(raw);
+  const d1 = Array.isArray(parsed.d1_databases) ? parsed.d1_databases : [];
+
+  if (!d1.length) {
+    throw new Error("wrangler.jsonc saknar d1_databases-konfiguration.");
+  }
+
+  parsed.d1_databases = d1.map((entry, index) => {
+    if (index !== 0) return entry;
+    return {
+      ...entry,
+      database_id: databaseId,
+      database_name: databaseName
+    };
+  });
+
+  const tempPath = path.resolve(WORKER_DIR, `.wrangler.generated.${process.pid}.json`);
+  fs.writeFileSync(tempPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  return tempPath;
+}
+
 function run() {
   const dryRun = hasFlag("dry-run");
+  const deployMode = getDeployMode();
+  if (deployMode !== "versions-upload" && deployMode !== "deploy") {
+    throw new Error(`Ogiltigt deploy-läge: ${deployMode}. Använd versions-upload eller deploy.`);
+  }
+
   const branchName = getBranchName();
   const target = resolveTargetDatabase({ branchName, dryRun });
 
@@ -165,36 +195,47 @@ function run() {
     `[d1] branch=${target.branchSlug} production=${target.isProductionBranch} db=${target.databaseName} created=${target.created}`
   );
   console.log(`[d1] database_id=${target.databaseId}`);
+  console.log(`[deploy] mode=${deployMode}`);
 
   if (dryRun) {
     console.log("[dry-run] Hoppar över migrations/apply och deploy.");
     return;
   }
 
-  runWrangler(
-    [
-      "d1",
-      "migrations",
-      "apply",
-      target.databaseName,
-      "--remote",
-      "--config",
-      ROOT_WRANGLER_CONFIG
-    ],
-    { env: process.env }
-  );
-
-  runWrangler(["deploy", "--config", ROOT_WRANGLER_CONFIG], {
-    env: {
-      ...process.env,
-      D1_DATABASE_ID: target.databaseId
-    }
+  const resolvedConfig = createResolvedWranglerConfig({
+    databaseId: target.databaseId,
+    databaseName: target.databaseName
   });
+
+  try {
+    runWrangler(
+      [
+        "d1",
+        "migrations",
+        "apply",
+        target.databaseName,
+        "--remote",
+        "--config",
+        resolvedConfig
+      ],
+      { env: process.env }
+    );
+
+    const deployArgs =
+      deployMode === "versions-upload"
+        ? ["versions", "upload", "--config", resolvedConfig]
+        : ["deploy", "--config", resolvedConfig];
+    runWrangler(deployArgs, { env: process.env });
+  } finally {
+    if (fs.existsSync(resolvedConfig)) {
+      fs.unlinkSync(resolvedConfig);
+    }
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const WORKER_DIR = path.resolve(__dirname, "..");
-const ROOT_WRANGLER_CONFIG = path.resolve(WORKER_DIR, "..", "..", "wrangler.jsonc");
+const ROOT_WRANGLER_CONFIG_TEMPLATE = path.resolve(WORKER_DIR, "..", "..", "wrangler.jsonc");
 
 run();

@@ -69,8 +69,9 @@ Frontend:
 Backend:
 
 - `cd cloudflare/worker && npm run deploy`
-- `cd cloudflare/worker && npm run deploy:auto-d1` (skapa/återanvänd branch-D1 automatiskt)
-- eller från repo-root: `npx wrangler versions upload`
+- `cd cloudflare/worker && npm run deploy:auto-d1` (rekommenderat i Cloudflare Builds; skapar/återanvänder D1 och kör `wrangler versions upload`)
+- `cd cloudflare/worker && npm run deploy:auto-d1:deploy` (samma D1-logik men med `wrangler deploy`)
+- från repo-root: `npx wrangler versions upload` fungerar bara om `D1_DATABASE_ID` redan är satt.
 
 Frontend:
 
@@ -114,18 +115,19 @@ Script: `cloudflare/worker/scripts/deploy-with-branch-d1.mjs` (körs via `npm ru
 Funktion:
 
 - Läser branch från `CF_PAGES_BRANCH` / `CF_BRANCH` / `GITHUB_REF_NAME` (eller `--branch=...`).
-- På icke-produktionsbrancher:
-  - använder D1-namn `booking-pr-<branch-slug>` (kan ändras via `D1_DATABASE_PREFIX`)
-  - skapar DB endast om den saknas
+- Väljer DB-namn:
+  - produktionsbranch (`main,master,production,prod`): `brf-booking-d1` (kan ändras via `D1_DATABASE_NAME`)
+  - övriga brancher: `booking-pr-<branch-slug>` (kan ändras via `D1_DATABASE_PREFIX`)
+- Kör `wrangler d1 list` och:
   - återanvänder DB om den redan finns
-- På produktionsbrancher (`main,master,production,prod`):
-  - skapar **aldrig** ny DB
-  - kräver explicit `D1_DATABASE_ID` i miljön
+  - skapar DB om den saknas (gäller även produktion enligt önskat beteende)
+- Skapar temporär wrangler-konfig med konkret `database_id` så deploy inte faller på `code: 10021`.
 
 Exempel:
 
 - Dry-run: `npm run deploy:auto-d1 -- --dry-run --branch=feature/x`
 - Deploy: `npm run deploy:auto-d1`
+- Deploy (klassisk): `npm run deploy:auto-d1:deploy`
 
 Valfria env vars:
 
