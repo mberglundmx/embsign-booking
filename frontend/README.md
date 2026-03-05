@@ -66,3 +66,11 @@ Deploy:
 npm run build
 npm run cf:pages:deploy
 ```
+
+### Observera
+
+- Worker-deploy (`wrangler versions upload`) publicerar bara API:t på `workers.dev`.
+- För `pages.dev` måste frontend också vara kopplad i ett separat **Cloudflare Pages-projekt**:
+  - Root directory: `frontend`
+  - Build command: `npm ci && npm run build`
+  - Output directory: `dist`

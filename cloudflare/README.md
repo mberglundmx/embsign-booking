@@ -75,6 +75,23 @@ Frontend:
 
 - `cd frontend && npm run build && npx wrangler pages deploy dist`
 
+## Viktigt: Workers Builds vs Pages Builds
+
+- En **Workers Build** (som kör `npx wrangler versions upload`) deployar bara Worker (`*.workers.dev`).
+- Den deployar **inte** frontend till `*.pages.dev`.
+- För `pages.dev` behöver ni en **separat Cloudflare Pages-projektkoppling** mot samma repo.
+
+### Rekommenderad Pages-konfiguration
+
+I Cloudflare Pages (nytt projekt):
+
+- Framework preset: `None`
+- Root directory: `frontend`
+- Build command: `npm ci && npm run build`
+- Build output directory: `dist`
+
+Detta ger en separat `*.pages.dev`-preview per branch/commit.
+
 ### Viktigt för Cloudflare deploy (fix för tidigare build-fel)
 
 - Root-konfigurationen `wrangler.jsonc` är nu avsiktligt minimal för CI/Workers Builds.
