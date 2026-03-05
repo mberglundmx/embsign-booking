@@ -443,6 +443,8 @@ export function createBookingApp(options = {}) {
     registrationCaptchaProvider: "turnstile",
     registrationCaptchaEnabled: Boolean(TURNSTILE_SITE_KEY),
     registrationCaptchaSiteKey: TURNSTILE_SITE_KEY,
+    registrationCaptchaConfigReason: "",
+    registrationCaptchaManualFallback: false,
     registrationCaptchaWidgetId: null,
     registrationCaptchaLoading: false,
     registrationCaptchaLoadError: "",
@@ -563,6 +565,8 @@ export function createBookingApp(options = {}) {
       this.registrationCaptchaProvider = "turnstile";
       this.registrationCaptchaSiteKey = TURNSTILE_SITE_KEY;
       this.registrationCaptchaEnabled = Boolean(TURNSTILE_SITE_KEY);
+      this.registrationCaptchaConfigReason = this.registrationCaptchaEnabled ? "ok" : "missing_site_key";
+      this.registrationCaptchaManualFallback = false;
 
       try {
         const api = await getApiClient();
@@ -570,13 +574,27 @@ export function createBookingApp(options = {}) {
         const config = await api.getCaptchaConfig();
         this.registrationCaptchaProvider = String(config?.provider || "turnstile");
         this.registrationCaptchaSiteKey = String(config?.site_key || "").trim();
+        this.registrationCaptchaConfigReason = String(config?.reason || "").trim();
+        this.registrationCaptchaManualFallback = Boolean(config?.manual_fallback_allowed);
         this.registrationCaptchaEnabled =
           Boolean(config?.enabled) &&
           this.registrationCaptchaProvider === "turnstile" &&
           Boolean(this.registrationCaptchaSiteKey);
       } catch {
+        this.registrationCaptchaConfigReason = "config_unreachable";
+        console.warn("[captcha] Kunde inte läsa captcha-konfig från backend.");
         // Behåll frontend-config som fallback om API:t inte svarar.
       }
+    },
+
+    getCaptchaDisabledMessage() {
+      if (this.registrationCaptchaConfigReason === "missing_site_key") {
+        return "Captcha är inte konfigurerad i backend (TURNSTILE_SITE_KEY saknas).";
+      }
+      if (this.registrationCaptchaConfigReason === "config_unreachable") {
+        return "Kunde inte hämta captcha-konfig från backend.";
+      }
+      return "Captcha är inte tillgänglig just nu.";
     },
 
     clearRegistrationCaptchaToken() {
@@ -680,7 +698,11 @@ export function createBookingApp(options = {}) {
         this.registrationSubdomainInput = candidate;
         this.registrationAvailabilityMessage = `Subdomänen ${candidate}.${ROOT_DOMAIN} är ledig.`;
         this.registrationStep = 2;
-        await this.prepareRegistrationCaptcha();
+        if (this.registrationCaptchaEnabled) {
+          await this.prepareRegistrationCaptcha();
+        } else if (!this.registrationCaptchaManualFallback) {
+          this.registrationCaptchaLoadError = this.getCaptchaDisabledMessage();
+        }
       } catch (error) {
         this.registrationErrorMessage = `Kunde inte kontrollera subdomän (${error?.message || "okänt fel"}).`;
       } finally {
@@ -694,8 +716,20 @@ export function createBookingApp(options = {}) {
       const email = String(this.registrationEmailInput || "").trim();
       const organizationNumber = String(this.registrationOrgNumberInput || "").trim();
       const captchaToken = String(this.registrationCaptchaToken || "").trim();
-      if (!subdomain || !associationName || !email || !organizationNumber || !captchaToken) {
-        this.registrationErrorMessage = "Fyll i subdomän, föreningsnamn, e-post, org.nr och captcha.";
+      if (!subdomain || !associationName || !email || !organizationNumber) {
+        this.registrationErrorMessage = "Fyll i subdomän, föreningsnamn, e-post och org.nr.";
+        return;
+      }
+      if (this.registrationCaptchaEnabled && !captchaToken) {
+        this.registrationErrorMessage = "Verifiera captcha innan registrering.";
+        return;
+      }
+      if (!this.registrationCaptchaEnabled && this.registrationCaptchaManualFallback && !captchaToken) {
+        this.registrationErrorMessage = "Ange captcha-token (dev-fallback) innan registrering.";
+        return;
+      }
+      if (!this.registrationCaptchaEnabled && !this.registrationCaptchaManualFallback) {
+        this.registrationErrorMessage = this.getCaptchaDisabledMessage();
         return;
       }
       this.registrationErrorMessage = "";

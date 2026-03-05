@@ -156,4 +156,6 @@ Sätt följande secrets/vars i Cloudflare:
 - `EMAIL_FROM` (avsändaradress)
 - `ROOT_DOMAIN` (t.ex. `bokningsportal.app`)
 
+Om `TURNSTILE_SITE_KEY` saknas blockeras registreringsflödet i UI (förutom ev. dev-fallback när `DEV_CAPTCHA_BYPASS=true`).
+
 > Sätt korrekt `database_id` i Worker-konfigurationen innan deploy.

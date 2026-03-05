@@ -990,11 +990,14 @@ async function handleRequest(request, env) {
 
     if (method === "GET" && url.pathname === "/api/public/captcha-config") {
       const siteKey = String(env.TURNSTILE_SITE_KEY || "").trim();
+      const manualFallbackAllowed = String(env.DEV_CAPTCHA_BYPASS || "false") === "true";
       return json(
         {
           provider: "turnstile",
           enabled: Boolean(siteKey),
-          site_key: siteKey
+          site_key: siteKey,
+          reason: siteKey ? "ok" : "missing_site_key",
+          manual_fallback_allowed: !siteKey && manualFallbackAllowed
         },
         200,
         headers

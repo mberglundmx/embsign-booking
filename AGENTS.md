@@ -24,6 +24,7 @@ This is a BRF Laundry Booking System on Cloudflare stack:
 - **PR-based preview naming**: in `versions-upload`, `CF_PAGES_PULL_REQUEST_ID` is prioritized and generates `pr-<id>` for stable preview D1 reuse per PR.
 - **Workers Builds commands**: use `node cloudflare/worker/scripts/deploy-with-branch-d1.mjs --deploy-mode=versions-upload` for preview and `--deploy-mode=deploy` for production.
 - **Turnstile setup**: set both `TURNSTILE_SITE_KEY` (public) and `TURNSTILE_SECRET` (server verification) in Cloudflare Worker vars/secrets for BRF registration captcha.
+- **Captcha fallback policy**: frontend blocks registration when captcha is not configured; only enable manual token fallback explicitly for local dev (`VITE_CAPTCHA_MANUAL_FALLBACK=true` or `DEV_CAPTCHA_BYPASS=true`).
 - **Local D1 migrations**: run `npm run d1:migrate:local` in `cloudflare/worker/` before local API tests.
 - **Frontend unit tests**: run `npx vitest run --dir tests` in `frontend/`. The default `npm run test` / `npx vitest run` will also pick up Playwright spec files which causes an error; use `--dir tests` to scope to unit tests only.
 - **Frontend build**: `npm run build` in `frontend/`.

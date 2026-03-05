@@ -188,10 +188,22 @@ export function listTenants() {
 
 export function getCaptchaConfig() {
   const siteKey = String(import.meta.env.VITE_TURNSTILE_SITE_KEY || "").trim();
+  const manualFallbackAllowed = import.meta.env.VITE_CAPTCHA_MANUAL_FALLBACK === "true";
+  if (!siteKey) {
+    return {
+      provider: "turnstile",
+      enabled: false,
+      site_key: "",
+      reason: "missing_site_key",
+      manual_fallback_allowed: manualFallbackAllowed
+    };
+  }
   return {
     provider: "turnstile",
-    enabled: Boolean(siteKey),
-    site_key: siteKey
+    enabled: true,
+    site_key: siteKey,
+    reason: "ok",
+    manual_fallback_allowed: false
   };
 }
 

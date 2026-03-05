@@ -141,7 +141,7 @@
                 x-text="registrationCaptchaLoadError"
               ></p>
             </div>
-            <label class="flex flex-col gap-1" x-show="!registrationCaptchaEnabled">
+            <label class="flex flex-col gap-1" x-show="!registrationCaptchaEnabled && registrationCaptchaManualFallback">
               <span class="text-sm font-medium text-slate-700">Captcha-token (fallback)</span>
               <input
                 class="input border-slate-300 bg-white"
@@ -151,10 +151,16 @@
                 data-testid="register-captcha-token"
               />
             </label>
+            <p
+              class="text-xs text-rose-700"
+              x-show="!registrationCaptchaEnabled && !registrationCaptchaManualFallback"
+              x-text="getCaptchaDisabledMessage()"
+            ></p>
             <div class="flex flex-wrap gap-2">
               <button
                 class="btn btn-primary px-4 py-2"
-                :disabled="tenantLoading"
+                x-show="registrationCaptchaEnabled || registrationCaptchaManualFallback"
+                :disabled="tenantLoading || registrationCaptchaLoading || (!registrationCaptchaEnabled && !registrationCaptchaManualFallback)"
                 @click="submitRegistration"
                 data-testid="register-submit"
               >

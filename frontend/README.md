@@ -23,7 +23,10 @@ För backend-anslutning:
 - `VITE_ROOT_DOMAIN` (standard: `bokningsportal.app`)
 - `VITE_RFID_UID` (demo-UID för POS-login)
 - `VITE_TURNSTILE_SITE_KEY` (site key för Turnstile-widget i registreringsflödet)
+- `VITE_CAPTCHA_MANUAL_FALLBACK=true` (endast för lokal dev om du vill tillåta manuell token-input)
 - `VITE_USE_MOCKS=true` för att köra med lokala mocks istället.
+
+Om captcha-konfig saknas från backend visas ett tydligt fel i registreringssteg 2 och submit blockeras (i stället för en icke-fungerande fallback).
 
 RFID i POS-läge:
 
