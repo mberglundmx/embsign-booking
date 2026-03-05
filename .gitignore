@@ -16,3 +16,10 @@ frontend/coverage-lcov
 frontend/coverage-lcov-html
 frontend/coverage-lcov-html
 *.pyc
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
