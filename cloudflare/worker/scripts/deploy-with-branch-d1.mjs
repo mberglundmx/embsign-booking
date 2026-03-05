@@ -26,16 +26,57 @@ function parseJsonFromOutput(output) {
   const raw = String(output || "").trim();
   if (!raw) return null;
 
-  const objectStart = raw.indexOf("{");
-  const objectEnd = raw.lastIndexOf("}");
-  if (objectStart !== -1 && objectEnd > objectStart) {
-    return JSON.parse(raw.slice(objectStart, objectEnd + 1));
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Fortsätt med robust extraktion av första JSON-värde.
   }
 
-  const arrayStart = raw.indexOf("[");
-  const arrayEnd = raw.lastIndexOf("]");
-  if (arrayStart !== -1 && arrayEnd > arrayStart) {
-    return JSON.parse(raw.slice(arrayStart, arrayEnd + 1));
+  const text = raw.replace(/\u001b\[[0-9;]*m/g, "");
+
+  for (let start = 0; start < text.length; start += 1) {
+    const opener = text[start];
+    if (opener !== "{" && opener !== "[") continue;
+
+    const closer = opener === "{" ? "}" : "]";
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let end = start; end < text.length; end += 1) {
+      const char = text[end];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (char === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+      if (char === opener) depth += 1;
+      if (char === closer) depth -= 1;
+
+      if (depth === 0) {
+        const candidate = text.slice(start, end + 1);
+        try {
+          return JSON.parse(candidate);
+        } catch {
+          break;
+        }
+      }
+    }
   }
 
   throw new Error(`Kunde inte tolka JSON från Wrangler-output: ${raw.slice(0, 300)}`);
