@@ -9,9 +9,14 @@ npm run dev
 
 Öppna `http://localhost:5173`.
 
+Multi-tenant:
+
+- Öppna gärna med tenant i URL, t.ex. `http://localhost:5173/min-brf`.
+- Om tenant saknas visas tenant-väljare i inloggningsvyn.
+
 För backend-anslutning:
 
-- `VITE_API_BASE` (t.ex. `http://localhost:8000`)
+- `VITE_API_BASE` (standard: `/api`)
 - `VITE_RFID_UID` (demo-UID för POS-login)
 - `VITE_USE_MOCKS=true` för att köra med lokala mocks istället.
 
@@ -42,4 +47,18 @@ Auto-fixa lokalt:
 ```bash
 npm run lint:fix
 npm run format
+```
+
+## Cloudflare Pages
+
+```bash
+npm run build
+npm run cf:pages:dev
+```
+
+Deploy:
+
+```bash
+npm run build
+npm run cf:pages:deploy
 ```

@@ -47,6 +47,8 @@ let activeApartmentId = "1001";
 let activeIsAdmin = false;
 let bookings = [];
 let blocks = [];
+let activeTenantId = "demo-brf";
+let tenants = [{ id: "demo-brf", name: "Demo BRF" }];
 
 function getDateString(date) {
   return toLocalDateString(date);
@@ -144,7 +146,9 @@ export function resetMockState() {
   users = structuredClone(initialUsers);
   activeApartmentId = "1001";
   activeIsAdmin = false;
-  const day = getDateString(addDays(new Date(), 1));
+  activeTenantId = "demo-brf";
+  tenants = [{ id: "demo-brf", name: "Demo BRF" }];
+  const day = "2030-01-15";
   const { start, end } = buildHourlySlots(day)[1];
   bookings = [
     {
@@ -157,6 +161,51 @@ export function resetMockState() {
     }
   ];
   blocks = [];
+}
+
+export function setTenantId(tenantId) {
+  const normalized = String(tenantId || "")
+    .trim()
+    .toLowerCase();
+  if (normalized) {
+    activeTenantId = normalized;
+  }
+}
+
+export function getTenantId() {
+  return activeTenantId;
+}
+
+export function listTenants() {
+  return structuredClone(tenants);
+}
+
+export function createTenant(payload = {}) {
+  const tenantId = String(payload.tenant_id || "")
+    .trim()
+    .toLowerCase();
+  if (!tenantId) {
+    const error = new Error("invalid_tenant_id");
+    error.status = 400;
+    throw error;
+  }
+  if (tenants.some((tenant) => tenant.id === tenantId)) {
+    const error = new Error("tenant_exists");
+    error.status = 409;
+    throw error;
+  }
+  const created = {
+    id: tenantId,
+    name: String(payload.name || tenantId).trim()
+  };
+  tenants = [...tenants, created];
+  activeTenantId = tenantId;
+  return {
+    tenant_id: tenantId,
+    name: created.name,
+    admin_apartment_id: "admin",
+    admin_password: "demo-admin-password"
+  };
 }
 
 export function getResources() {

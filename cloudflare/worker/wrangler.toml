@@ -1,0 +1,15 @@
+name = "brf-booking-api"
+main = "src/index.js"
+compatibility_date = "2026-03-05"
+
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "brf-booking-d1"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[vars]
+# Används av frontend för default API-bas om ni proxar via samma domän.
+PUBLIC_API_BASE = "/api"

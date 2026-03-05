@@ -44,6 +44,65 @@
           </div>
         </div>
 
+        <div class="mx-auto flex w-full max-w-sm flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p class="text-sm font-semibold text-slate-900">Välj BRF</p>
+          <p class="text-xs text-slate-600">
+            Ange ditt BRF-ID i URL (t.ex. <span class="font-semibold">/min-brf</span>) eller välj här.
+          </p>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-medium text-slate-700">Befintliga BRF:er</span>
+            <select
+              class="input border-slate-300 bg-white"
+              x-model="tenantSelectionInput"
+              @change="selectTenant"
+              data-testid="tenant-select"
+            >
+              <option value="">Välj BRF...</option>
+              <template x-for="tenant in tenantOptions" :key="tenant.id">
+                <option :value="tenant.id" x-text="`${tenant.name} (${tenant.id})`"></option>
+              </template>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-medium text-slate-700">Nytt BRF-ID</span>
+            <input
+              class="input border-slate-300 bg-white"
+              type="text"
+              x-model="tenantSelectionInput"
+              placeholder="t.ex. brf-solsidan"
+              data-testid="tenant-id-input"
+            />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-medium text-slate-700">Nytt BRF-namn</span>
+            <input
+              class="input border-slate-300 bg-white"
+              type="text"
+              x-model="tenantNameInput"
+              placeholder="t.ex. BRF Solsidan"
+              data-testid="tenant-name-input"
+            />
+          </label>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-secondary px-3 py-2 text-sm" @click="selectTenant" data-testid="tenant-use-btn">
+              Använd BRF
+            </button>
+            <button
+              class="btn btn-primary px-3 py-2 text-sm"
+              :disabled="tenantLoading"
+              @click="createTenant"
+              data-testid="tenant-create-btn"
+            >
+              Skapa ny BRF
+            </button>
+          </div>
+          <p class="text-xs text-rose-700" x-show="tenantErrorMessage" x-text="tenantErrorMessage"></p>
+          <p class="text-xs text-emerald-700" x-show="tenantSetupMessage" x-text="tenantSetupMessage"></p>
+          <p class="text-xs text-slate-600" x-show="hasTenantSelected">
+            Aktiv BRF: <span class="font-semibold" x-text="tenantId"></span>
+          </p>
+        </div>
+
         <template x-if="isPosMode">
           <div class="relative mx-auto flex h-full w-full max-w-6xl flex-col items-center justify-center px-2 text-center">
             <img
@@ -94,7 +153,7 @@
               <button
                 class="btn btn-primary w-full"
                 type="submit"
-                :disabled="loading"
+                :disabled="loading || !hasTenantSelected"
                 data-testid="desktop-login"
               >
                 Logga in

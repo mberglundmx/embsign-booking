@@ -1,13 +1,39 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+import { detectTenantId, normalizeTenantId, storeTenantId } from "./tenant";
+
+const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 
 let healthLogged = false;
+let activeTenantId = "";
+const FALLBACK_TEST_TENANT_ID =
+  import.meta.env?.VITEST === "true" || import.meta.env?.MODE === "test" ? "test-brf" : "";
+
+export function setTenantId(tenantId) {
+  const normalized = normalizeTenantId(tenantId);
+  activeTenantId = normalized;
+  if (normalized) {
+    storeTenantId(normalized);
+  }
+}
+
+export function getTenantId() {
+  if (activeTenantId) return activeTenantId;
+  const detected = detectTenantId();
+  if (detected) {
+    activeTenantId = detected;
+  }
+  return activeTenantId || FALLBACK_TEST_TENANT_ID;
+}
 
 export async function logBackendStatus() {
   if (healthLogged) return;
   healthLogged = true;
   console.info("[backend] api_base=%s", API_BASE || "(same-origin)");
   try {
-    const response = await fetch(`${API_BASE}/health`, { credentials: "include" });
+    const tenantId = getTenantId();
+    const response = await fetch(`${API_BASE}/health`, {
+      credentials: "include",
+      headers: tenantId ? { "X-BRF-ID": tenantId } : {}
+    });
     if (!response.ok) {
       console.warn("[backend] health check failed status=%s", response.status);
       return;
@@ -18,12 +44,19 @@ export async function logBackendStatus() {
   }
 }
 
-async function request(path, options = {}) {
+async function request(path, options = {}, { tenantRequired = true, tenantId: tenantOverride } = {}) {
   logBackendStatus();
+  const tenantId = normalizeTenantId(tenantOverride || getTenantId());
+  if (tenantRequired && !tenantId) {
+    const error = new Error("missing_tenant");
+    error.status = 400;
+    throw error;
+  }
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...(tenantId ? { "X-BRF-ID": tenantId } : {}),
       ...(options.headers ?? {})
     },
     ...options
@@ -124,5 +157,33 @@ export async function deleteAdminBlock(blockId) {
   return request("/admin/block", {
     method: "DELETE",
     body: JSON.stringify({ block_id: blockId })
+  });
+}
+
+export async function listTenants() {
+  const data = await request("/public/tenants", {}, { tenantRequired: false });
+  return data.tenants ?? [];
+}
+
+export async function createTenant(payload) {
+  return request(
+    "/public/tenants",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    { tenantRequired: false }
+  );
+}
+
+export async function getTenantConfig() {
+  const data = await request("/admin/config");
+  return data.configs ?? {};
+}
+
+export async function updateTenantConfig(configs) {
+  return request("/admin/config", {
+    method: "PUT",
+    body: JSON.stringify({ configs })
   });
 }

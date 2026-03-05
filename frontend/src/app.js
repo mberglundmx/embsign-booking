@@ -5,6 +5,7 @@ import {
   parseLocalDateString,
   toLocalDateString
 } from "./dateUtils";
+import { buildTenantPath, detectTenantId, normalizeTenantId, storeTenantId } from "./tenant";
 
 const DEFAULT_MODE = "desktop";
 const FULL_DAY_COUNT = 30;
@@ -13,12 +14,17 @@ const WEEKDAY_LABELS = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
 const NEXT_AVAILABILITY_LOADING = "__loading__";
 const NEXT_AVAILABILITY_NONE = "__none__";
 const DEFAULT_DEPLOY_CHECK_INTERVAL_MS = 30000;
+const TENANT_ID_SUGGESTION_REGEX = /[^a-z0-9-]/g;
 const RAW_CONFIGURED_PUBLIC_HOSTNAME = import.meta.env.VITE_PUBLIC_HOSTNAME ?? "";
 const RAW_FRONTEND_ORIGINS =
   import.meta.env.VITE_FRONTEND_ORIGINS ?? import.meta.env.FRONTEND_ORIGINS ?? "";
 const DEMO_RFID_UID = import.meta.env.VITE_RFID_UID || "UID123";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 const DEPLOY_AUTO_RELOAD_ENABLED = import.meta.env.VITE_AUTO_RELOAD_ON_DEPLOY !== "false";
+const DEFAULT_TENANT_ID =
+  Boolean(import.meta.vitest) || import.meta.env?.MODE === "test" || import.meta.env?.VITEST === "true"
+    ? "test-brf"
+    : "";
 
 let apiPromise = null;
 
@@ -80,6 +86,15 @@ function getIsoWeekNumber(date) {
 
 function getDateString(date) {
   return toLocalDateString(date);
+}
+
+function normalizeTenantInput(value = "") {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(TENANT_ID_SUGGESTION_REGEX, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 function getUpcomingDays(count, startOffset = 0) {
@@ -357,6 +372,13 @@ export function createBookingApp(options = {}) {
 
   return {
     mode: DEFAULT_MODE,
+    tenantId: DEFAULT_TENANT_ID,
+    tenantOptions: [],
+    tenantSelectionInput: DEFAULT_TENANT_ID,
+    tenantNameInput: "",
+    tenantSetupMessage: "",
+    tenantErrorMessage: "",
+    tenantLoading: false,
     isAuthenticated: false,
     authenticatedStep: "setup",
     userId: null,
@@ -400,9 +422,96 @@ export function createBookingApp(options = {}) {
       this.mode = modeDetector();
       this.days = getUpcomingDays(FULL_DAY_COUNT);
       this.bindRfidListener();
-      if (!useMocks) {
+      await this.initializeTenantContext();
+      const api = await getApiClient();
+      api.logBackendStatus?.();
+    },
+
+    async initializeTenantContext() {
+      const detected = normalizeTenantId(detectTenantId(runtimeWindow));
+      if (detected) {
+        this.tenantId = detected;
+        this.tenantSelectionInput = detected;
+        storeTenantId(detected, runtimeWindow.localStorage);
+      }
+      try {
         const api = await getApiClient();
-        api.logBackendStatus?.();
+        if (typeof api.listTenants === "function") {
+          this.tenantOptions = await api.listTenants();
+        }
+        if (this.tenantId && typeof api.setTenantId === "function") {
+          api.setTenantId(this.tenantId);
+        }
+      } catch {
+        this.tenantOptions = [];
+      }
+      if (useMocks && !this.tenantId) {
+        this.tenantId = "demo-brf";
+      }
+      if (this.tenantId) {
+        const api = await getApiClient();
+        api.setTenantId?.(this.tenantId);
+      }
+    },
+
+    async selectTenant(options = {}) {
+      const preserveSetupMessage = Boolean(options.preserveSetupMessage);
+      const nextTenantId = normalizeTenantId(this.tenantSelectionInput);
+      if (!nextTenantId) {
+        this.tenantErrorMessage = "Ange ett giltigt BRF-ID (a-z, 0-9 och bindestreck).";
+        return;
+      }
+      this.tenantErrorMessage = "";
+      if (!preserveSetupMessage) {
+        this.tenantSetupMessage = "";
+      }
+      this.tenantId = nextTenantId;
+      storeTenantId(nextTenantId, runtimeWindow.localStorage);
+      const api = await getApiClient();
+      api.setTenantId?.(nextTenantId);
+      const targetPath = buildTenantPath(nextTenantId);
+      if (runtimeWindow.history?.replaceState && runtimeWindow.location?.pathname !== targetPath) {
+        runtimeWindow.history.replaceState({}, "", targetPath);
+      }
+    },
+
+    async createTenant() {
+      const tenantId = normalizeTenantInput(this.tenantSelectionInput);
+      const tenantName = String(this.tenantNameInput || "").trim();
+      if (!tenantId) {
+        this.tenantErrorMessage = "Ange ett BRF-ID innan du skapar tenant.";
+        return;
+      }
+      if (!tenantName) {
+        this.tenantErrorMessage = "Ange BRF-namn innan du skapar tenant.";
+        return;
+      }
+      this.tenantLoading = true;
+      this.tenantErrorMessage = "";
+      this.tenantSetupMessage = "";
+      try {
+        const api = await getApiClient();
+        if (typeof api.createTenant !== "function") {
+          throw new Error("tenant_creation_not_supported");
+        }
+        const created = await api.createTenant({
+          tenant_id: tenantId,
+          name: tenantName
+        });
+        this.tenantSetupMessage = `Skapad BRF ${created.tenant_id}. Admin-lösenord: ${created.admin_password}`;
+        this.userIdInput = created.admin_apartment_id ?? "admin";
+        this.passwordInput = created.admin_password ?? "";
+        this.tenantOptions = typeof api.listTenants === "function" ? await api.listTenants() : this.tenantOptions;
+        this.tenantSelectionInput = created.tenant_id;
+        await this.selectTenant({ preserveSetupMessage: true });
+      } catch (error) {
+        if (error?.message === "tenant_exists") {
+          this.tenantErrorMessage = "BRF-ID finns redan. Välj det i listan.";
+        } else {
+          this.tenantErrorMessage = "Kunde inte skapa BRF just nu.";
+        }
+      } finally {
+        this.tenantLoading = false;
       }
     },
 
@@ -428,6 +537,10 @@ export function createBookingApp(options = {}) {
 
     get isPosMode() {
       return this.mode === "pos";
+    },
+
+    get hasTenantSelected() {
+      return Boolean(this.tenantId);
     },
 
     get isSetupStep() {
@@ -674,10 +787,15 @@ export function createBookingApp(options = {}) {
     },
 
     async loginPos(uidOverride = "") {
+      if (!this.hasTenantSelected) {
+        this.showError("Välj först BRF-ID.");
+        return;
+      }
       this.loading = true;
       this.clearError();
       try {
         const api = await getApiClient();
+        api.setTenantId?.(this.tenantId);
         const uid = uidOverride || demoRfidUid;
         const result = await api.loginWithRfid(uid);
         this.isAuthenticated = true;
@@ -703,10 +821,15 @@ export function createBookingApp(options = {}) {
     },
 
     async loginPassword() {
+      if (!this.hasTenantSelected) {
+        this.showError("Välj först BRF-ID.");
+        return;
+      }
       this.loading = true;
       this.clearError();
       try {
         const api = await getApiClient();
+        api.setTenantId?.(this.tenantId);
         const result = await api.loginWithPassword(
           this.userIdInput.trim(),
           this.passwordInput.trim()
