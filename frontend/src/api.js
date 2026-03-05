@@ -178,6 +178,59 @@ export async function getCaptchaConfig() {
   return request("/public/captcha-config", {}, { tenantRequired: false });
 }
 
+export async function getCaptchaConfigWithDiagnostics() {
+  logBackendStatus();
+  const path = "/public/captcha-config";
+  const requestUrl = `${API_BASE}${path}`;
+  const response = await fetch(requestUrl, {
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json"
+    }
+  });
+
+  let parsed = null;
+  let bodyPreview = "";
+  const contentType = response.headers?.get?.("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      parsed = await response.json();
+    } catch {
+      parsed = null;
+    }
+  } else if (typeof response.text === "function") {
+    bodyPreview = (await response.text()).slice(0, 120);
+  }
+
+  const diagnostics = {
+    api_base: API_BASE,
+    endpoint: requestUrl,
+    response_url: response.url || requestUrl,
+    status: response.status,
+    proxy_worker_base: response.headers.get("x-captcha-proxy-worker-base") || "",
+    proxy_upstream_url: response.headers.get("x-captcha-proxy-upstream-url") || "",
+    proxy_upstream_status: response.headers.get("x-captcha-proxy-upstream-status") || "",
+    proxy_pages_branch: response.headers.get("x-captcha-proxy-pages-branch") || ""
+  };
+
+  if (!response.ok) {
+    const detail = parsed?.detail ?? parsed?.message ?? bodyPreview ?? response.statusText;
+    const error = new Error(String(detail || "captcha_config_failed"));
+    error.status = response.status;
+    error.diagnostics = diagnostics;
+    throw error;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    const error = new Error("unexpected_response_format");
+    error.status = response.status;
+    error.diagnostics = diagnostics;
+    throw error;
+  }
+
+  return { config: parsed, diagnostics };
+}
+
 export async function createTenant(payload) {
   return request(
     "/public/tenants",

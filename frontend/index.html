@@ -140,6 +140,11 @@
                 x-show="registrationCaptchaLoadError"
                 x-text="registrationCaptchaLoadError"
               ></p>
+              <p
+                class="text-xs text-slate-500"
+                data-testid="register-captcha-diagnostics"
+                x-text="getRegistrationCaptchaStatusLine()"
+              ></p>
             </div>
             <label class="flex flex-col gap-1" x-show="!registrationCaptchaEnabled && registrationCaptchaManualFallback">
               <span class="text-sm font-medium text-slate-700">Captcha-token (fallback)</span>

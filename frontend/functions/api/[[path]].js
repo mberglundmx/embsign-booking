@@ -40,9 +40,17 @@ export async function onRequest(context) {
     redirect: "manual"
   });
 
+  const responseHeaders = new Headers(upstreamResponse.headers);
+  if (pathAfterApi === "/public/captcha-config") {
+    responseHeaders.set("x-captcha-proxy-worker-base", workerBase);
+    responseHeaders.set("x-captcha-proxy-upstream-url", upstreamUrl);
+    responseHeaders.set("x-captcha-proxy-upstream-status", String(upstreamResponse.status));
+    responseHeaders.set("x-captcha-proxy-pages-branch", String(env.CF_PAGES_BRANCH || ""));
+  }
+
   return new Response(upstreamResponse.body, {
     status: upstreamResponse.status,
     statusText: upstreamResponse.statusText,
-    headers: upstreamResponse.headers
+    headers: responseHeaders
   });
 }

@@ -24,6 +24,8 @@ const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 const DEPLOY_AUTO_RELOAD_ENABLED = import.meta.env.VITE_AUTO_RELOAD_ON_DEPLOY !== "false";
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
 const TURNSTILE_SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+const CAPTCHA_CONFIG_PATH = "/public/captcha-config";
+const AGENT_DEBUG_LOG_PATH = "/opt/cursor/logs/debug.log";
 const DEFAULT_TENANT_ID =
   Boolean(import.meta.vitest) || import.meta.env?.MODE === "test" || import.meta.env?.VITEST === "true"
     ? "test-brf"
@@ -31,6 +33,21 @@ const DEFAULT_TENANT_ID =
 
 let apiPromise = null;
 let turnstileScriptPromise = null;
+
+function emitCaptchaDebugLog(payload = {}) {
+  const entry = {
+    ...payload,
+    timestamp: Date.now()
+  };
+  // #region agent log
+  if (import.meta.env.MODE === "test" && typeof process !== "undefined" && process?.versions?.node) {
+    import("node:fs")
+      .then((fs) => fs.appendFileSync(AGENT_DEBUG_LOG_PATH, `${JSON.stringify(entry)}\n`))
+      .catch(() => {});
+  }
+  // #endregion
+  console.info("[captcha-debug]", entry);
+}
 
 async function getApi() {
   if (!apiPromise) {
@@ -444,10 +461,20 @@ export function createBookingApp(options = {}) {
     registrationCaptchaEnabled: Boolean(TURNSTILE_SITE_KEY),
     registrationCaptchaSiteKey: TURNSTILE_SITE_KEY,
     registrationCaptchaConfigReason: "",
+    registrationCaptchaConfigSource: "startup",
+    registrationCaptchaConfigEndpoint: `/api${CAPTCHA_CONFIG_PATH}`,
+    registrationCaptchaConfigResponseUrl: "",
+    registrationCaptchaConfigHttpStatus: null,
+    registrationCaptchaProxyWorkerBase: "",
+    registrationCaptchaProxyUpstreamUrl: "",
+    registrationCaptchaProxyUpstreamStatus: "",
+    registrationCaptchaProxyPagesBranch: "",
     registrationCaptchaManualFallback: false,
     registrationCaptchaWidgetId: null,
     registrationCaptchaLoading: false,
     registrationCaptchaLoadError: "",
+    registrationCaptchaScriptStatus: "idle",
+    registrationCaptchaWidgetRendered: false,
     registrationErrorMessage: "",
     registrationSuccessMessage: "",
     registrationAvailabilityMessage: "",
@@ -566,23 +593,140 @@ export function createBookingApp(options = {}) {
       this.registrationCaptchaSiteKey = TURNSTILE_SITE_KEY;
       this.registrationCaptchaEnabled = Boolean(TURNSTILE_SITE_KEY);
       this.registrationCaptchaConfigReason = this.registrationCaptchaEnabled ? "ok" : "missing_site_key";
+      this.registrationCaptchaConfigSource = this.registrationCaptchaEnabled
+        ? "vite_env_fallback"
+        : "vite_env_missing";
+      this.registrationCaptchaConfigEndpoint = `/api${CAPTCHA_CONFIG_PATH}`;
+      this.registrationCaptchaConfigResponseUrl = "";
+      this.registrationCaptchaConfigHttpStatus = null;
+      this.registrationCaptchaProxyWorkerBase = "";
+      this.registrationCaptchaProxyUpstreamUrl = "";
+      this.registrationCaptchaProxyUpstreamStatus = "";
+      this.registrationCaptchaProxyPagesBranch = "";
       this.registrationCaptchaManualFallback = false;
+      // #region agent log
+      emitCaptchaDebugLog({
+        hypothesisId: "H1",
+        location: "frontend/src/app.js:loadCaptchaConfig",
+        message: "load captcha config entry",
+        data: {
+          source: this.registrationCaptchaConfigSource,
+          hasViteSiteKey: Boolean(TURNSTILE_SITE_KEY),
+          endpoint: this.registrationCaptchaConfigEndpoint
+        }
+      });
+      // #endregion
 
       try {
         const api = await getApiClient();
-        if (typeof api.getCaptchaConfig !== "function") return;
-        const config = await api.getCaptchaConfig();
-        this.registrationCaptchaProvider = String(config?.provider || "turnstile");
-        this.registrationCaptchaSiteKey = String(config?.site_key || "").trim();
-        this.registrationCaptchaConfigReason = String(config?.reason || "").trim();
-        this.registrationCaptchaManualFallback = Boolean(config?.manual_fallback_allowed);
+        let backendEnabled = this.registrationCaptchaEnabled;
+        if (typeof api.getCaptchaConfigWithDiagnostics === "function") {
+          const result = await api.getCaptchaConfigWithDiagnostics();
+          const config = result?.config ?? {};
+          const diagnostics = result?.diagnostics ?? {};
+          backendEnabled = Boolean(config?.enabled);
+          this.registrationCaptchaProvider = String(config?.provider || "turnstile");
+          this.registrationCaptchaSiteKey = String(config?.site_key || "").trim();
+          this.registrationCaptchaConfigReason = String(config?.reason || "").trim();
+          this.registrationCaptchaManualFallback = Boolean(config?.manual_fallback_allowed);
+          this.registrationCaptchaConfigSource = "backend_api";
+          this.registrationCaptchaConfigEndpoint = String(diagnostics?.endpoint || "").trim() || `/api${CAPTCHA_CONFIG_PATH}`;
+          this.registrationCaptchaConfigResponseUrl = String(diagnostics?.response_url || "").trim();
+          this.registrationCaptchaConfigHttpStatus = Number.isFinite(diagnostics?.status)
+            ? diagnostics.status
+            : null;
+          this.registrationCaptchaProxyWorkerBase = String(diagnostics?.proxy_worker_base || "").trim();
+          this.registrationCaptchaProxyUpstreamUrl = String(diagnostics?.proxy_upstream_url || "").trim();
+          this.registrationCaptchaProxyUpstreamStatus = String(
+            diagnostics?.proxy_upstream_status || ""
+          ).trim();
+          this.registrationCaptchaProxyPagesBranch = String(diagnostics?.proxy_pages_branch || "").trim();
+          // #region agent log
+          emitCaptchaDebugLog({
+            hypothesisId: "H1",
+            location: "frontend/src/app.js:loadCaptchaConfig",
+            message: "captcha config response meta",
+            data: {
+              endpoint: this.registrationCaptchaConfigEndpoint,
+              responseUrl: this.registrationCaptchaConfigResponseUrl,
+              httpStatus: this.registrationCaptchaConfigHttpStatus,
+              proxyWorkerBase: this.registrationCaptchaProxyWorkerBase,
+              proxyUpstreamStatus: this.registrationCaptchaProxyUpstreamStatus,
+              proxyPagesBranch: this.registrationCaptchaProxyPagesBranch
+            }
+          });
+          // #endregion
+        } else {
+          if (typeof api.getCaptchaConfig !== "function") return;
+          const config = await api.getCaptchaConfig();
+          backendEnabled = Boolean(config?.enabled);
+          this.registrationCaptchaProvider = String(config?.provider || "turnstile");
+          this.registrationCaptchaSiteKey = String(config?.site_key || "").trim();
+          this.registrationCaptchaConfigReason = String(config?.reason || "").trim();
+          this.registrationCaptchaManualFallback = Boolean(config?.manual_fallback_allowed);
+          this.registrationCaptchaConfigSource = "backend_api_legacy";
+          // #region agent log
+          emitCaptchaDebugLog({
+            hypothesisId: "H1",
+            location: "frontend/src/app.js:loadCaptchaConfig",
+            message: "captcha config response meta",
+            data: {
+              endpoint: this.registrationCaptchaConfigEndpoint,
+              responseUrl: this.registrationCaptchaConfigResponseUrl,
+              httpStatus: this.registrationCaptchaConfigHttpStatus,
+              proxyWorkerBase: this.registrationCaptchaProxyWorkerBase,
+              proxyUpstreamStatus: this.registrationCaptchaProxyUpstreamStatus,
+              proxyPagesBranch: this.registrationCaptchaProxyPagesBranch
+            }
+          });
+          // #endregion
+        }
         this.registrationCaptchaEnabled =
-          Boolean(config?.enabled) &&
+          backendEnabled &&
+          this.registrationCaptchaConfigReason !== "disabled" &&
           this.registrationCaptchaProvider === "turnstile" &&
           Boolean(this.registrationCaptchaSiteKey);
-      } catch {
+        // #region agent log
+        emitCaptchaDebugLog({
+          hypothesisId: "H2",
+          location: "frontend/src/app.js:loadCaptchaConfig",
+          message: "captcha config evaluated",
+          data: {
+            provider: this.registrationCaptchaProvider,
+            enabled: this.registrationCaptchaEnabled,
+            reason: this.registrationCaptchaConfigReason,
+            hasSiteKey: Boolean(this.registrationCaptchaSiteKey),
+            source: this.registrationCaptchaConfigSource
+          }
+        });
+        // #endregion
+      } catch (error) {
+        const diagnostics = error?.diagnostics ?? {};
         this.registrationCaptchaConfigReason = "config_unreachable";
+        this.registrationCaptchaConfigSource = "backend_api_error";
+        this.registrationCaptchaConfigHttpStatus = Number.isFinite(error?.status) ? error.status : null;
+        this.registrationCaptchaConfigEndpoint =
+          String(diagnostics?.endpoint || "").trim() || this.registrationCaptchaConfigEndpoint;
+        this.registrationCaptchaConfigResponseUrl = String(diagnostics?.response_url || "").trim();
+        this.registrationCaptchaProxyWorkerBase = String(diagnostics?.proxy_worker_base || "").trim();
+        this.registrationCaptchaProxyUpstreamUrl = String(diagnostics?.proxy_upstream_url || "").trim();
+        this.registrationCaptchaProxyUpstreamStatus = String(
+          diagnostics?.proxy_upstream_status || ""
+        ).trim();
+        this.registrationCaptchaProxyPagesBranch = String(diagnostics?.proxy_pages_branch || "").trim();
         console.warn("[captcha] Kunde inte läsa captcha-konfig från backend.");
+        // #region agent log
+        emitCaptchaDebugLog({
+          hypothesisId: "H5",
+          location: "frontend/src/app.js:loadCaptchaConfig",
+          message: "captcha config request failed",
+          data: {
+            reason: this.registrationCaptchaConfigReason,
+            endpoint: this.registrationCaptchaConfigEndpoint,
+            source: this.registrationCaptchaConfigSource
+          }
+        });
+        // #endregion
         // Behåll frontend-config som fallback om API:t inte svarar.
       }
     },
@@ -595,6 +739,29 @@ export function createBookingApp(options = {}) {
         return "Kunde inte hämta captcha-konfig från backend.";
       }
       return "Captcha är inte tillgänglig just nu.";
+    },
+
+    getRegistrationCaptchaStatusLine() {
+      const parts = [
+        `källa=${this.registrationCaptchaConfigSource || "okänd"}`,
+        `reason=${this.registrationCaptchaConfigReason || "okänd"}`,
+        `enabled=${this.registrationCaptchaEnabled ? "ja" : "nej"}`,
+        `script=${this.registrationCaptchaScriptStatus || "okänd"}`,
+        `rendered=${this.registrationCaptchaWidgetRendered ? "ja" : "nej"}`
+      ];
+      if (this.registrationCaptchaConfigHttpStatus !== null) {
+        parts.push(`http=${this.registrationCaptchaConfigHttpStatus}`);
+      }
+      if (this.registrationCaptchaConfigEndpoint) {
+        parts.push(`endpoint=${this.registrationCaptchaConfigEndpoint}`);
+      }
+      if (this.registrationCaptchaProxyWorkerBase) {
+        parts.push(`workerBase=${this.registrationCaptchaProxyWorkerBase}`);
+      }
+      if (this.registrationCaptchaProxyUpstreamStatus) {
+        parts.push(`upstreamStatus=${this.registrationCaptchaProxyUpstreamStatus}`);
+      }
+      return parts.join(" | ");
     },
 
     clearRegistrationCaptchaToken() {
@@ -613,14 +780,39 @@ export function createBookingApp(options = {}) {
       if (!this.registrationCaptchaEnabled) return;
       this.registrationCaptchaLoading = true;
       this.registrationCaptchaLoadError = "";
+      this.registrationCaptchaScriptStatus = "loading";
+      // #region agent log
+      emitCaptchaDebugLog({
+        hypothesisId: "H3",
+        location: "frontend/src/app.js:prepareRegistrationCaptcha",
+        message: "captcha script load started",
+        data: {
+          enabled: this.registrationCaptchaEnabled,
+          siteKeyPresent: Boolean(this.registrationCaptchaSiteKey)
+        }
+      });
+      // #endregion
       try {
         await ensureTurnstileScript(runtimeWindow);
+        this.registrationCaptchaScriptStatus = "loaded";
         await this.$nextTick();
         this.renderRegistrationCaptchaWidget();
       } catch {
+        this.registrationCaptchaScriptStatus = "error";
         this.registrationCaptchaLoadError =
           "Kunde inte ladda captcha-widget. Ladda om sidan och försök igen.";
       } finally {
+        // #region agent log
+        emitCaptchaDebugLog({
+          hypothesisId: "H3",
+          location: "frontend/src/app.js:prepareRegistrationCaptcha",
+          message: "captcha script load finished",
+          data: {
+            scriptStatus: this.registrationCaptchaScriptStatus,
+            loadError: this.registrationCaptchaLoadError
+          }
+        });
+        // #endregion
         this.registrationCaptchaLoading = false;
       }
     },
@@ -629,6 +821,21 @@ export function createBookingApp(options = {}) {
       if (!this.registrationCaptchaEnabled) return;
       const turnstile = runtimeWindow.turnstile;
       const container = this.$refs?.turnstileWidget;
+      const canRender = Boolean(turnstile && typeof turnstile.render === "function" && container);
+      // #region agent log
+      emitCaptchaDebugLog({
+        hypothesisId: "H4",
+        location: "frontend/src/app.js:renderRegistrationCaptchaWidget",
+        message: "captcha render attempt",
+        data: {
+          canRender,
+          hasTurnstile: Boolean(turnstile),
+          hasRenderFn: Boolean(turnstile && typeof turnstile.render === "function"),
+          hasContainer: Boolean(container)
+        }
+      });
+      // #endregion
+      this.registrationCaptchaWidgetRendered = false;
       if (!turnstile || typeof turnstile.render !== "function" || !container) return;
 
       if (this.registrationCaptchaWidgetId !== null) {
@@ -655,6 +862,18 @@ export function createBookingApp(options = {}) {
             "Captcha kunde inte verifieras. Uppdatera sidan och försök igen.";
         }
       });
+      this.registrationCaptchaWidgetRendered = true;
+      // #region agent log
+      emitCaptchaDebugLog({
+        hypothesisId: "H4",
+        location: "frontend/src/app.js:renderRegistrationCaptchaWidget",
+        message: "captcha render completed",
+        data: {
+          widgetIdPresent: this.registrationCaptchaWidgetId !== null,
+          rendered: this.registrationCaptchaWidgetRendered
+        }
+      });
+      // #endregion
     },
 
     openRegistration() {
