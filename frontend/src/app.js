@@ -978,7 +978,11 @@ export function createBookingApp(options = {}) {
         this.tenantOptions = typeof api.listTenants === "function" ? await api.listTenants() : this.tenantOptions;
         this.landingTenantSelection = subdomain;
         if (result?.development_preview?.apartment_id && result?.development_preview?.password) {
-          this.registrationSuccessMessage = `Registrering klar (dev). Inloggning: ${result.development_preview.apartment_id} / ${result.development_preview.password}`;
+          if (result?.status === "email_skipped") {
+            this.registrationSuccessMessage = `Registrering klar. Tillfälliga inloggningsuppgifter: ${result.development_preview.apartment_id} / ${result.development_preview.password}`;
+          } else {
+            this.registrationSuccessMessage = `Registrering klar (dev). Inloggning: ${result.development_preview.apartment_id} / ${result.development_preview.password}`;
+          }
           this.userIdInput = result.development_preview.apartment_id;
           this.passwordInput = result.development_preview.password;
         }

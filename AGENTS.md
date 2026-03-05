@@ -27,6 +27,7 @@ This is a BRF Laundry Booking System on Cloudflare stack:
 - **Vars forwarding in deploy script**: auto-deploy script forwards selected build env vars into runtime `vars` (e.g. `TURNSTILE_SITE_KEY`, `ROOT_DOMAIN`) via generated wrangler config.
 - **Turnstile setup**: set both `TURNSTILE_SITE_KEY` (public) and `TURNSTILE_SECRET` (server verification) in Cloudflare Worker vars/secrets for BRF registration captcha.
 - **Captcha fallback policy**: frontend blocks registration when captcha is not configured; only enable manual token fallback explicitly for local dev (`VITE_CAPTCHA_MANUAL_FALLBACK=true` or `DEV_CAPTCHA_BYPASS=true`).
+- **Temporary no-email mode**: if `RESEND_API_KEY`/`EMAIL_FROM` are missing, registration still succeeds, skips email delivery, and uses temporary admin password `abc123`.
 - **Local D1 migrations**: run `npm run d1:migrate:local` in `cloudflare/worker/` before local API tests.
 - **Frontend unit tests**: run `npx vitest run --dir tests` in `frontend/`. The default `npm run test` / `npx vitest run` will also pick up Playwright spec files which causes an error; use `--dir tests` to scope to unit tests only.
 - **Frontend build**: `npm run build` in `frontend/`.

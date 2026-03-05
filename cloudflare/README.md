@@ -165,4 +165,10 @@ Sätt följande secrets/vars i Cloudflare:
 
 Om `TURNSTILE_SITE_KEY` saknas blockeras registreringsflödet i UI (förutom ev. dev-fallback när `DEV_CAPTCHA_BYPASS=true`).
 
+Om e-postkonfig (`RESEND_API_KEY` + `EMAIL_FROM`) saknas vid registrering:
+
+- e-poststeg hoppas över
+- administratörslösenord sätts till temporärt `abc123`
+- API-svaret markeras med `status: "email_skipped"` och innehåller tillfälliga inloggningsuppgifter
+
 > Sätt korrekt `database_id` i Worker-konfigurationen innan deploy.

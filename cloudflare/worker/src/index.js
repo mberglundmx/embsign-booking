@@ -763,10 +763,12 @@ async function createTenantRecord(
   tenantId,
   tenantName,
   configObject = {},
-  metadata = {}
+  metadata = {},
+  options = {}
 ) {
   const adminApartmentId = "admin";
-  const adminPassword = randomPassword(16);
+  const configuredAdminPassword = String(options?.adminPassword || "").trim();
+  const adminPassword = configuredAdminPassword || randomPassword(16);
   const adminPasswordHash = await sha256(adminPassword);
   await run(
     db,
@@ -877,17 +879,15 @@ async function sendCredentialsEmail(env, payload) {
   const apiKey = String(env.RESEND_API_KEY || "").trim();
   const fromEmail = String(env.EMAIL_FROM || "").trim();
   if (!apiKey || !fromEmail) {
-    const allowDevInline = String(env.DEV_EMAIL_INLINE_RESPONSE || "false") === "true";
-    if (allowDevInline) {
-      return {
-        delivered: true,
-        development_preview: {
-          apartment_id: payload.adminApartmentId,
-          password: payload.adminPassword
-        }
-      };
-    }
-    return { delivered: false, reason: "email_not_configured" };
+    return {
+      delivered: true,
+      skipped: true,
+      reason: "email_not_configured",
+      development_preview: {
+        apartment_id: payload.adminApartmentId,
+        password: payload.adminPassword
+      }
+    };
   }
 
   const subject = `Inloggning till ${payload.tenantName} (${payload.tenantId})`;
@@ -1071,12 +1071,17 @@ async function handleRequest(request, env) {
         return errorResponse(400, `captcha_failed:${captchaResult.reason}`);
       }
 
+      const emailConfigured = Boolean(String(env.RESEND_API_KEY || "").trim()) &&
+        Boolean(String(env.EMAIL_FROM || "").trim());
       const created = await createTenantRecord(
         db,
         subdomain,
         associationName,
         {},
-        { adminEmail: email, organizationNumber }
+        { adminEmail: email, organizationNumber },
+        {
+          adminPassword: emailConfigured ? "" : "abc123"
+        }
       );
       const rootDomain = String(env.ROOT_DOMAIN || DEFAULT_ROOT_DOMAIN).trim().toLowerCase();
       const loginUrl = buildTenantLoginUrl(created.tenant_id, rootDomain);
@@ -1095,7 +1100,7 @@ async function handleRequest(request, env) {
 
       return json(
         {
-          status: "email_sent",
+          status: emailResult.skipped ? "email_skipped" : "email_sent",
           tenant_id: created.tenant_id,
           login_url: loginUrl,
           ...(emailResult.development_preview ? { development_preview: emailResult.development_preview } : {})
