@@ -90,14 +90,38 @@ function getBranchName() {
   return "";
 }
 
+function getShortCommitSha() {
+  const envSha =
+    process.env.CF_PAGES_COMMIT_SHA ||
+    process.env.CF_COMMIT_SHA ||
+    process.env.GITHUB_SHA ||
+    process.env.CI_COMMIT_SHA ||
+    "";
+  if (envSha) return String(envSha).slice(0, 12);
+
+  const gitSha = spawnSync("git", ["rev-parse", "--short=12", "HEAD"], {
+    cwd: WORKER_DIR,
+    encoding: "utf8",
+    stdio: "pipe"
+  });
+  if (gitSha.status === 0) {
+    const value = String(gitSha.stdout || "").trim();
+    if (value) return value;
+  }
+
+  return "";
+}
+
 function getProductionBranches() {
   const value = process.env.PRODUCTION_BRANCHES || "main,master,production,prod";
-  return new Set(
-    value
-      .split(",")
-      .map((item) => slugifyBranchName(item))
-      .filter(Boolean)
-  );
+  const items = value
+    .split(",")
+    .map((item) => slugifyBranchName(item))
+    .filter(Boolean);
+  return {
+    set: new Set(items),
+    first: items[0] || "main"
+  };
 }
 
 function resolveTargetDatabaseName({ branchSlug, isProductionBranch }) {
@@ -142,14 +166,13 @@ function findOrCreateDatabase({ databaseName, dryRun }) {
   };
 }
 
-function resolveTargetDatabase({ branchName, dryRun }) {
-  const branchSlug = slugifyBranchName(branchName);
-  if (!branchSlug) {
-    throw new Error("Kunde inte avgöra branch-namn. Ange --branch=<namn> eller sätt CF_PAGES_BRANCH.");
-  }
-
+function resolveTargetDatabase({ branchName, dryRun, deployMode }) {
+  const normalizedBranch = slugifyBranchName(branchName);
   const productionBranches = getProductionBranches();
-  const isProductionBranch = productionBranches.has(branchSlug);
+  const fallbackBranch =
+    deployMode === "deploy" ? productionBranches.first : `preview-${getShortCommitSha() || "unknown"}`;
+  const branchSlug = normalizedBranch || fallbackBranch;
+  const isProductionBranch = productionBranches.set.has(branchSlug);
   const databaseName = resolveTargetDatabaseName({ branchSlug, isProductionBranch });
   const { databaseId, created } = findOrCreateDatabase({ databaseName, dryRun });
 
@@ -201,7 +224,7 @@ function run() {
   }
 
   const branchName = getBranchName();
-  const target = resolveTargetDatabase({ branchName, dryRun });
+  const target = resolveTargetDatabase({ branchName, dryRun, deployMode });
 
   console.log(
     `[d1] branch=${target.branchSlug} production=${target.isProductionBranch} db=${target.databaseName} created=${target.created}`

@@ -20,6 +20,7 @@ This is a BRF Laundry Booking System on Cloudflare stack:
 
 - **D1 binding in Cloudflare builds**: root `wrangler.jsonc` uses `${D1_DATABASE_ID}`. If you run `wrangler versions upload` directly, set `D1_DATABASE_ID`; if you run `npm run deploy:auto-d1`, the script resolves/injects `database_id` automatically.
 - **Branch D1 auto-provision**: `cd cloudflare/worker && npm run deploy:auto-d1` runs `d1 list` and creates DB only if missing. Production branches use `D1_DATABASE_NAME` (default `brf-booking-d1`), others use `booking-pr-<branch-slug>`.
+- **Branch fallback**: if branch env vars are missing in Workers Builds, deploy-mode `deploy` falls back to `main` (or first in `PRODUCTION_BRANCHES`), and `versions-upload` falls back to `preview-<commit-sha>`.
 - **Workers Builds commands**: use `node cloudflare/worker/scripts/deploy-with-branch-d1.mjs --deploy-mode=versions-upload` for preview and `--deploy-mode=deploy` for production.
 - **Local D1 migrations**: run `npm run d1:migrate:local` in `cloudflare/worker/` before local API tests.
 - **Frontend unit tests**: run `npx vitest run --dir tests` in `frontend/`. The default `npm run test` / `npx vitest run` will also pick up Playwright spec files which causes an error; use `--dir tests` to scope to unit tests only.

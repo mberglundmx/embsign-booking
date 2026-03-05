@@ -121,6 +121,9 @@ Script: `cloudflare/worker/scripts/deploy-with-branch-d1.mjs` (körs via `npm ru
 Funktion:
 
 - Läser branch från `CF_PAGES_BRANCH` / `CF_BRANCH` / `GITHUB_REF_NAME` (eller `--branch=...`).
+- Om branch saknas i buildmiljön används fallback:
+  - `deploy`-läge: första värdet i `PRODUCTION_BRANCHES` (default `main`)
+  - `versions-upload`-läge: `preview-<commit-sha>`
 - Väljer DB-namn:
   - produktionsbranch (`main,master,production,prod`): `brf-booking-d1` (kan ändras via `D1_DATABASE_NAME`)
   - övriga brancher: `booking-pr-<branch-slug>` (kan ändras via `D1_DATABASE_PREFIX`)
