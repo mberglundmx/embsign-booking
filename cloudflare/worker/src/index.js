@@ -15,6 +15,16 @@ function json(data, status = 200, headers = {}) {
   });
 }
 
+function html(body, status = 200, headers = {}) {
+  return new Response(body, {
+    status,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      ...headers
+    }
+  });
+}
+
 function toErrorResponse(status, detail, headers = {}) {
   return json({ detail }, status, headers);
 }
@@ -917,12 +927,47 @@ async function handleRequest(request, env) {
   const headers = corsHeaders(request);
   const errorResponse = (status, detail) => toErrorResponse(status, detail, headers);
   const secureCookie = url.protocol === "https:";
+  const rootDomain = String(env.ROOT_DOMAIN || DEFAULT_ROOT_DOMAIN).trim().toLowerCase();
 
   if (method === "OPTIONS") {
     return new Response(null, { status: 204, headers });
   }
 
   if (!url.pathname.startsWith("/api")) {
+    if (method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+      const host = request.headers.get("host") || url.host;
+      const tenantFromHost = getTenantIdFromHost(request, rootDomain);
+      const tenantHint = tenantFromHost
+        ? `<p><strong>Upptäckt tenant från host:</strong> <code>${tenantFromHost}</code></p>`
+        : `<p><strong>Ingen tenant upptäckt i host:</strong> <code>${host}</code></p>`;
+      const rootLanding = `https://${rootDomain}/`;
+      const htmlBody = `
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BRF Bokningsportal API</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #0f172a; }
+      code { background: #f1f5f9; padding: 0.15rem 0.35rem; border-radius: 6px; }
+      .box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 1rem; background: #f8fafc; }
+      h1 { margin-bottom: 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <h1>BRF Bokningsportal – Worker API</h1>
+    <p>Den här URL:en är en <strong>Workers API-preview</strong>, inte frontendens Pages-site.</p>
+    <div class="box">
+      ${tenantHint}
+      <p>Frontend/landningssida finns på rootdomänen: <a href="${rootLanding}">${rootLanding}</a></p>
+      <p>API health: <a href="/api/health">/api/health</a></p>
+    </div>
+  </body>
+</html>
+      `;
+      return html(htmlBody, 200, headers);
+    }
     return errorResponse(404, "not_found");
   }
   const db = env.DB;
