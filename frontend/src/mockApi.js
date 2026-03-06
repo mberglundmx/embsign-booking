@@ -301,7 +301,9 @@ export function registerTenant(payload = {}) {
     .trim()
     .toLowerCase();
   const name = String(payload.association_name || payload.name || subdomain).trim();
-  const email = String(payload.email || "").trim().toLowerCase();
+  const email = String(payload.email || "")
+    .trim()
+    .toLowerCase();
   const organizationNumber = String(payload.organization_number || "").trim();
   const captchaToken = String(payload.captcha_token || "").trim();
   if (!subdomain || !email || !organizationNumber || !captchaToken) {
@@ -640,7 +642,9 @@ function getFieldValue(row, preferredField, fallbackPatterns = []) {
   const preferred = normalizeFieldKey(preferredField);
   const preferredLoose = normalizeFieldKeyLoose(preferredField);
   const fallback = fallbackPatterns.map((item) => normalizeFieldKey(item)).filter(Boolean);
-  const fallbackLoose = fallbackPatterns.map((item) => normalizeFieldKeyLoose(item)).filter(Boolean);
+  const fallbackLoose = fallbackPatterns
+    .map((item) => normalizeFieldKeyLoose(item))
+    .filter(Boolean);
   for (const key of keys) {
     const strict = normalizeFieldKey(key);
     const loose = normalizeFieldKeyLoose(key);
@@ -672,17 +676,24 @@ function parseImport(csvText, rules) {
   const houseRegex = new RegExp(normalizedRules.house_regex);
   const apartmentRegex = new RegExp(normalizedRules.apartment_regex);
   const adminGroupSet = new Set(
-    normalizedRules.admin_access_groups.map((item) => normalizeAccessGroupMatchKey(item)).filter(Boolean)
+    normalizedRules.admin_access_groups
+      .map((item) => normalizeAccessGroupMatchKey(item))
+      .filter(Boolean)
   );
   const { headers, rows } = parseCsv(csvText);
   const parsedRows = rows.map((row) => {
     const uid = getFieldValue(row, normalizedRules.uid_field, ["identitetsid", "uid"]);
-    const sourceValue = getFieldValue(row, normalizedRules.apartment_source_field, ["orggrupp", "placering"]);
+    const sourceValue = getFieldValue(row, normalizedRules.apartment_source_field, [
+      "orggrupp",
+      "placering"
+    ]);
     const houseMatch = houseRegex.exec(sourceValue);
     const apartmentMatch = apartmentRegex.exec(sourceValue);
     const house = String(houseMatch?.[1] ?? houseMatch?.[0] ?? "").trim();
     const apartmentCode = String(apartmentMatch?.[1] ?? apartmentMatch?.[0] ?? "").trim();
-    const accessGroup = getFieldValue(row, normalizedRules.access_group_field, ["behorighetsgrupp"]);
+    const accessGroup = getFieldValue(row, normalizedRules.access_group_field, [
+      "behorighetsgrupp"
+    ]);
     const accessGroupList = String(accessGroup || "")
       .split("|")
       .map((item) => item.trim())
@@ -694,7 +705,11 @@ function parseImport(csvText, rules) {
     const isActive =
       String(normalizedRules.active_status_value || "").trim() === "" ||
       status === String(normalizedRules.active_status_value);
-    const apartmentId = isAdmin ? "admin" : house && apartmentCode ? `${house}-${apartmentCode}` : "";
+    const apartmentId = isAdmin
+      ? "admin"
+      : house && apartmentCode
+        ? `${house}-${apartmentCode}`
+        : "";
     let ignoredReason = "";
     if (!uid) ignoredReason = "missing_uid";
     else if (!apartmentId) ignoredReason = "missing_apartment_mapping";
@@ -727,7 +742,12 @@ function parseImport(csvText, rules) {
       is_active: row.is_active ? 1 : 0
     }));
   const availableAccessGroups = [
-    ...new Set(parsedRows.flatMap((row) => row.access_group_list || []).map((value) => value.trim()).filter(Boolean))
+    ...new Set(
+      parsedRows
+        .flatMap((row) => row.access_group_list || [])
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
   ].sort((a, b) => a.localeCompare(b, "sv-SE"));
 
   const existingByUid = new Map(rfidTags.map((tag) => [tag.uid, tag]));
@@ -932,9 +952,15 @@ export function updateAdminResource(resourceId, payload = {}) {
     allow_houses: payload.allow_houses ?? existing.allow_houses,
     deny_apartment_ids: payload.deny_apartment_ids ?? existing.deny_apartment_ids,
     is_active: payload.is_active === undefined ? existing.is_active : payload.is_active ? 1 : 0,
-    price_weekday_cents: Math.round(Number(payload.price_weekday ?? existing.price_weekday_cents / 100) * 100),
-    price_weekend_cents: Math.round(Number(payload.price_weekend ?? existing.price_weekend_cents / 100) * 100),
-    price_cents: Math.round(Number(payload.price_weekday ?? existing.price_weekday_cents / 100) * 100),
+    price_weekday_cents: Math.round(
+      Number(payload.price_weekday ?? existing.price_weekday_cents / 100) * 100
+    ),
+    price_weekend_cents: Math.round(
+      Number(payload.price_weekend ?? existing.price_weekend_cents / 100) * 100
+    ),
+    price_cents: Math.round(
+      Number(payload.price_weekday ?? existing.price_weekday_cents / 100) * 100
+    ),
     is_billable:
       payload.is_billable === undefined ? Number(existing.is_billable) : payload.is_billable ? 1 : 0
   };

@@ -504,7 +504,9 @@ describe("bookingApp", () => {
     for (const testCase of cases) {
       const { app } = createApp({
         apiOverrides: {
-          registerTenant: vi.fn().mockRejectedValue(Object.assign(new Error(testCase.detail), { status: 400 }))
+          registerTenant: vi
+            .fn()
+            .mockRejectedValue(Object.assign(new Error(testCase.detail), { status: 400 }))
         }
       });
       app.registrationStep = 2;
@@ -1367,7 +1369,9 @@ describe("bookingApp", () => {
     expect(app.getSelectedResourcePrice()).toBe(200);
     expect(app.getSelectedResourcePriceForDate("2026-03-06")).toBe(200);
     expect(app.getSelectedResourcePriceForDate("2026-03-07")).toBe(300);
-    expect(app.getResourcePriceLabel(app.selectedResource)).toBe("Debitering: vardag 200 kr, helg 300 kr");
+    expect(app.getResourcePriceLabel(app.selectedResource)).toBe(
+      "Debitering: vardag 200 kr, helg 300 kr"
+    );
     app.selectedResourceId = 1;
     expect(app.getSelectedResourcePrice()).toBe(0);
 
