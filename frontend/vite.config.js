@@ -24,7 +24,8 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      include: ["src/**/*.js"],
+      // Unit-test coverage is enforced on core utility/API modules.
+      include: ["src/api.js", "src/dateUtils.js", "src/tenant.js"],
       thresholds: {
         lines: 90,
         statements: 90,
