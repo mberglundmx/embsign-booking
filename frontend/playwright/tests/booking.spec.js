@@ -1,7 +1,17 @@
 import { expect, test } from "@playwright/test";
 
+const TEST_TENANT_ID = "test-brf";
+
+function visibleByTestId(page, testId) {
+  return page.locator(`[data-testid="${testId}"]:visible`).first();
+}
+
+function bookingUrl(mode) {
+  return `/?mode=${mode}&brf=${TEST_TENANT_ID}`;
+}
+
 async function resetMocks(page) {
-  await page.goto("/?mode=desktop");
+  await page.goto(bookingUrl("desktop"));
   await page.evaluate(async () => {
     const mockApi = await import("/src/mockApi.js");
     mockApi.resetMockState();
@@ -10,54 +20,56 @@ async function resetMocks(page) {
 
 test("POS-login kan ändra mobil-lösenord", async ({ page }) => {
   await resetMocks(page);
-  await page.goto("/?mode=pos");
+  await page.goto(bookingUrl("pos"));
 
-  await expect(page.getByText("Visa bricka")).toBeVisible();
+  await expect(page.locator("p:visible", { hasText: "Visa bricka" })).toBeVisible();
   await page.keyboard.type("UID123");
   await page.keyboard.press("Enter");
 
-  await expect(page.getByTestId("booking-setup")).toBeVisible();
-  await expect(page.getByTestId("password-change-toggle")).toBeVisible();
+  await expect(visibleByTestId(page, "booking-setup")).toBeVisible();
+  await expect(visibleByTestId(page, "password-change-toggle")).toBeVisible();
 
-  await page.getByTestId("password-change-toggle").click();
-  await page.getByTestId("password-change-new").fill("test1234");
-  await page.getByTestId("password-change-confirm").fill("test1234");
-  await page.getByTestId("password-change-submit").click();
-  await expect(page.getByTestId("password-change-success")).toContainText("uppdaterat");
-  await expect(page.getByTestId("logout")).toBeVisible();
+  await visibleByTestId(page, "password-change-toggle").click();
+  await visibleByTestId(page, "password-change-new").fill("test1234");
+  await visibleByTestId(page, "password-change-confirm").fill("test1234");
+  await visibleByTestId(page, "password-change-submit").click();
+  await expect(visibleByTestId(page, "password-change-success")).toContainText("uppdaterat");
+  await expect(visibleByTestId(page, "logout")).toBeVisible();
 });
 
 test("Desktop-login fungerar", async ({ page }) => {
   await resetMocks(page);
-  await page.goto("/?mode=desktop");
-  await page.getByTestId("login-userid").fill("1001");
-  await page.getByTestId("login-password").fill("1234");
-  await page.getByTestId("desktop-login").click();
-  await expect(page.getByTestId("booking-setup")).toBeVisible();
-  await page.getByTestId("resource-card").first().click();
-  await expect(page.getByTestId("schedule-view")).toBeVisible();
-  await expect(page.getByTestId("selected-booking-object-title")).toContainText("Bokningsobjekt");
+  await page.goto(bookingUrl("desktop"));
+  await visibleByTestId(page, "login-userid").fill("1001");
+  await visibleByTestId(page, "login-password").fill("1234");
+  await visibleByTestId(page, "desktop-login").click();
+  await expect(visibleByTestId(page, "booking-setup")).toBeVisible();
+  await visibleByTestId(page, "resource-card").click();
+  await expect(visibleByTestId(page, "schedule-view")).toBeVisible();
+  await expect(visibleByTestId(page, "selected-booking-object-title")).toContainText(
+    "Bokningsobjekt"
+  );
 });
 
 test("Boka och avboka", async ({ page }) => {
   await resetMocks(page);
-  await page.goto("/?mode=desktop");
-  await page.getByTestId("login-userid").fill("1001");
-  await page.getByTestId("login-password").fill("1234");
-  await page.getByTestId("desktop-login").click();
-  await page.getByTestId("resource-card").first().click();
-  await expect(page.getByTestId("schedule-view")).toBeVisible();
+  await page.goto(bookingUrl("desktop"));
+  await visibleByTestId(page, "login-userid").fill("1001");
+  await visibleByTestId(page, "login-password").fill("1234");
+  await visibleByTestId(page, "desktop-login").click();
+  await visibleByTestId(page, "resource-card").click();
+  await expect(visibleByTestId(page, "schedule-view")).toBeVisible();
 
   const bookButton = page.locator('[data-testid="book-slot"]:not([disabled])').first();
   await bookButton.click();
-  await expect(page.getByTestId("confirm-modal")).toBeVisible();
-  await page.getByTestId("confirm-ok").click();
+  await expect(visibleByTestId(page, "confirm-modal")).toBeVisible();
+  await visibleByTestId(page, "confirm-ok").click();
 
-  await page.getByTestId("step-back").click();
-  await expect(page.getByTestId("booking-setup")).toBeVisible();
-  await expect(page.getByTestId("booking-list")).toContainText("Tvättstuga");
+  await visibleByTestId(page, "step-back").click();
+  await expect(visibleByTestId(page, "booking-setup")).toBeVisible();
+  await expect(visibleByTestId(page, "booking-list")).toContainText("Tvättstuga");
 
-  await page.getByTestId("cancel-booking").first().click();
-  await page.getByTestId("confirm-ok").click();
-  await expect(page.getByTestId("confirm-modal")).toBeHidden();
+  await visibleByTestId(page, "cancel-booking").click();
+  await visibleByTestId(page, "confirm-ok").click();
+  await expect(page.locator('[data-testid="confirm-modal"]:visible')).toHaveCount(0);
 });
