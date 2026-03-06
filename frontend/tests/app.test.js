@@ -559,6 +559,58 @@ describe("bookingApp", () => {
     expect(app.bookings[0].apartmentId).toBe("B202");
   });
 
+  it("openCopyResourceForm duplicerar regler till nytt bokningsobjekt", () => {
+    const { app } = createApp();
+    app.adminResourceHouseOptions = ["3"];
+    app.adminResourceApartmentOptions = ["4-1204"];
+    app.adminResourceMessage = "tidigare";
+    app.adminResourceError = "tidigare";
+    const resource = {
+      id: 77,
+      name: "Tvättstuga 2",
+      booking_type: "full-day",
+      category: "tvätt",
+      slot_duration_minutes: 120,
+      slot_start_hour: 7,
+      slot_end_hour: 21,
+      max_future_days: 20,
+      min_future_days: 1,
+      max_bookings: 3,
+      price_weekday_cents: 1200,
+      price_weekend_cents: 1800,
+      is_billable: true,
+      is_active: true,
+      allow_houses: "1,2",
+      deny_apartment_ids: "1-1001,2-1002"
+    };
+
+    app.openCopyResourceForm(resource);
+
+    expect(app.adminResourceModalOpen).toBe(true);
+    expect(app.adminResourceError).toBe("");
+    expect(app.adminResourceMessage).toBe("");
+    expect(app.adminResourceForm).toMatchObject({
+      id: null,
+      name: "Tvättstuga 2 (kopia)",
+      booking_type: "full-day",
+      category: "tvätt",
+      slot_duration_minutes: 120,
+      slot_start_hour: 7,
+      slot_end_hour: 21,
+      max_future_days: 20,
+      min_future_days: 1,
+      max_bookings: 3,
+      price_weekday: 12,
+      price_weekend: 18,
+      is_billable: true,
+      is_active: true,
+      allow_houses: ["1", "2"],
+      deny_apartment_ids: ["1-1001", "2-1002"]
+    });
+    expect(app.adminResourceHouseOptions).toEqual(["1", "2", "3"]);
+    expect(app.adminResourceApartmentOptions).toEqual(["1-1001", "2-1002", "4-1204"]);
+  });
+
   it("använder booking_url från login för publik bokningsadress", async () => {
     const windowObject = createWindowMock();
     windowObject.location = { host: "bokning.example.se" };
