@@ -271,6 +271,15 @@ export async function updateTenantConfig(configs) {
   });
 }
 
+export async function getAdminUsers() {
+  const data = await request("/admin/users");
+  return {
+    users: data.users ?? [],
+    houses: data.houses ?? [],
+    apartments: data.apartments ?? []
+  };
+}
+
 export async function getAxemaImportRules() {
   const data = await request("/admin/axema/rules");
   return data.rules ?? {};

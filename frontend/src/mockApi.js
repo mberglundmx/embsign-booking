@@ -666,7 +666,7 @@ function parseImport(csvText, rules) {
     const isActive =
       String(normalizedRules.active_status_value || "").trim() === "" ||
       status === String(normalizedRules.active_status_value);
-    const apartmentId = house && apartmentCode ? `${house}-${apartmentCode}` : isAdmin ? "admin" : "";
+    const apartmentId = isAdmin ? "admin" : house && apartmentCode ? `${house}-${apartmentCode}` : "";
     let ignoredReason = "";
     if (!uid) ignoredReason = "missing_uid";
     else if (!apartmentId) ignoredReason = "missing_apartment_mapping";
@@ -903,4 +903,36 @@ export function deleteAdminResource(resourceId) {
     Number(resource.id) === id ? { ...resource, is_active: 0 } : resource
   );
   return { status: "ok" };
+}
+
+export function getAdminUsers() {
+  if (!activeIsAdmin) {
+    const error = new Error("forbidden");
+    error.status = 403;
+    throw error;
+  }
+  const userIds = [
+    ...new Set(
+      [
+        ...users.map((entry) => String(entry.apartment_id || "").trim()),
+        ...rfidTags.map((entry) => String(entry.apartment_id || "").trim())
+      ].filter(Boolean)
+    )
+  ].sort((a, b) => a.localeCompare(b, "sv-SE"));
+  if (!userIds.includes("admin")) {
+    userIds.unshift("admin");
+  }
+  const houses = [
+    ...new Set(
+      userIds
+        .filter((id) => id.toLowerCase() !== "admin")
+        .map((id) => id.split("-", 1)[0]?.trim() || "")
+        .filter(Boolean)
+    )
+  ].sort((a, b) => a.localeCompare(b, "sv-SE"));
+  return {
+    users: userIds.map((id) => ({ id, house: id.split("-", 1)[0] || "" })),
+    houses,
+    apartments: userIds.filter((id) => id.toLowerCase() !== "admin")
+  };
 }

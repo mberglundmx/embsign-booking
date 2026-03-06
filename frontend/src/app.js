@@ -197,6 +197,69 @@ function formatTimeRange(startIso, endIso) {
   return formatWallClockRange(startIso, endIso);
 }
 
+function parseDelimitedLineClient(line, delimiter = ";") {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"') {
+      if (inQuotes && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === delimiter && !inQuotes) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  values.push(current.trim());
+  return values;
+}
+
+function parseCsvForPreview(csvText, delimiter = ";") {
+  const text = String(csvText || "").replace(/^\uFEFF/, "");
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0);
+  if (lines.length === 0) return { headers: [], rows: [] };
+  const headers = parseDelimitedLineClient(lines[0], delimiter).map((entry) => String(entry || "").trim());
+  const rows = lines.slice(1).map((line) => {
+    const values = parseDelimitedLineClient(line, delimiter);
+    const row = {};
+    headers.forEach((header, index) => {
+      row[header] = String(values[index] ?? "").trim();
+    });
+    return row;
+  });
+  return { headers, rows };
+}
+
+function splitRuleListValues(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry ?? "").trim()).filter(Boolean);
+  }
+  return String(value || "")
+    .split(/[\n,|;]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function normalizeCsvFieldName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
 export function getHostnameFromAddress(value = "") {
   const trimmed = value.trim();
   if (!trimmed) return "";
@@ -513,6 +576,8 @@ export function createBookingApp(options = {}) {
     },
     adminAxemaCsvText: "",
     adminAxemaCsvFileName: "",
+    adminAxemaModalOpen: false,
+    adminAxemaHeaders: [],
     adminAxemaRules: {
       apartment_source_field: "OrgGrupp",
       house_regex: "(\\d)-LGH.*",
@@ -530,13 +595,17 @@ export function createBookingApp(options = {}) {
     adminAxemaActionUpdateExisting: true,
     adminAxemaActionRemoveMissing: true,
     adminAxemaLoading: false,
+    adminAxemaPreviewDebounceId: null,
     adminAxemaMessage: "",
     adminAxemaError: "",
+    adminBookingUsers: [],
     adminResources: [],
-    adminResourceEditorOpen: false,
+    adminResourceModalOpen: false,
     adminResourceSaving: false,
     adminResourceError: "",
     adminResourceMessage: "",
+    adminResourceHouseOptions: [],
+    adminResourceApartmentOptions: [],
     adminResourceForm: {
       id: null,
       name: "",
@@ -552,8 +621,8 @@ export function createBookingApp(options = {}) {
       price_weekend: 0,
       is_billable: false,
       is_active: true,
-      allow_houses: "",
-      deny_apartment_ids: ""
+      allow_houses: [],
+      deny_apartment_ids: []
     },
     errorTimeoutId: null,
 
@@ -1565,6 +1634,8 @@ export function createBookingApp(options = {}) {
     resetAdminConsoleState() {
       this.adminAxemaCsvText = "";
       this.adminAxemaCsvFileName = "";
+      this.adminAxemaModalOpen = false;
+      this.adminAxemaHeaders = [];
       this.adminAxemaAvailableAccessGroups = [];
       this.adminAxemaPreviewRows = [];
       this.adminAxemaDiff = null;
@@ -1572,13 +1643,20 @@ export function createBookingApp(options = {}) {
       this.adminAxemaActionUpdateExisting = true;
       this.adminAxemaActionRemoveMissing = true;
       this.adminAxemaLoading = false;
+      if (this.adminAxemaPreviewDebounceId) {
+        runtimeWindow.clearTimeout(this.adminAxemaPreviewDebounceId);
+        this.adminAxemaPreviewDebounceId = null;
+      }
       this.adminAxemaMessage = "";
       this.adminAxemaError = "";
+      this.adminBookingUsers = [];
       this.adminResources = [];
-      this.adminResourceEditorOpen = false;
+      this.adminResourceModalOpen = false;
       this.adminResourceSaving = false;
       this.adminResourceError = "";
       this.adminResourceMessage = "";
+      this.adminResourceHouseOptions = [];
+      this.adminResourceApartmentOptions = [];
       this.adminResourceForm = {
         id: null,
         name: "",
@@ -1594,20 +1672,154 @@ export function createBookingApp(options = {}) {
         price_weekend: 0,
         is_billable: false,
         is_active: true,
-        allow_houses: "",
-        deny_apartment_ids: ""
+        allow_houses: [],
+        deny_apartment_ids: []
       };
     },
 
-    get adminAxemaGroupsText() {
-      return (this.adminAxemaRules.admin_access_groups ?? []).join(", ");
+    getAxemaFieldOptions(selectedValue = "") {
+      const options = [...this.adminAxemaHeaders];
+      const selected = String(selectedValue || "").trim();
+      if (selected && !options.includes(selected)) {
+        options.unshift(selected);
+      }
+      return options;
     },
 
-    set adminAxemaGroupsText(value) {
-      this.adminAxemaRules.admin_access_groups = String(value || "")
-        .split(/[\n,;|]/)
-        .map((entry) => entry.trim())
+    refreshAxemaCsvMetadata() {
+      const { headers, rows } = parseCsvForPreview(this.adminAxemaCsvText);
+      this.adminAxemaHeaders = headers;
+      const pickHeader = (current, candidates = []) => {
+        if (headers.includes(current)) return current;
+        const normalizedCandidates = candidates.map((candidate) => normalizeCsvFieldName(candidate));
+        const match = headers.find((header) => {
+          const normalizedHeader = normalizeCsvFieldName(header);
+          return normalizedCandidates.some(
+            (candidate) => normalizedHeader.includes(candidate) || candidate.includes(normalizedHeader)
+          );
+        });
+        return match || current;
+      };
+      this.adminAxemaRules.apartment_source_field = pickHeader(this.adminAxemaRules.apartment_source_field, [
+        "OrgGrupp",
+        "Placering"
+      ]);
+      this.adminAxemaRules.uid_field = pickHeader(this.adminAxemaRules.uid_field, ["Identitetsid", "UID"]);
+      this.adminAxemaRules.access_group_field = pickHeader(this.adminAxemaRules.access_group_field, [
+        "Behörighetsgrupp",
+        "AccessGroup"
+      ]);
+      this.adminAxemaRules.status_field = pickHeader(this.adminAxemaRules.status_field, [
+        "Identitetsstatus",
+        "Status"
+      ]);
+
+      const accessField = this.adminAxemaRules.access_group_field;
+      const availableGroups = [
+        ...new Set(
+          rows
+            .map((row) => String(row?.[accessField] || "").trim())
+            .filter(Boolean)
+        )
+      ].sort((a, b) => a.localeCompare(b, "sv-SE"));
+      this.adminAxemaAvailableAccessGroups = availableGroups;
+      const groupLookup = new Map(
+        availableGroups.map((group) => [normalizeCsvFieldName(group), group])
+      );
+      this.adminAxemaRules.admin_access_groups = splitRuleListValues(
+        this.adminAxemaRules.admin_access_groups
+      )
+        .map((group) => {
+          if (availableGroups.length === 0) return group;
+          const resolved = groupLookup.get(normalizeCsvFieldName(group));
+          return resolved || "";
+        })
         .filter(Boolean);
+    },
+
+    scheduleAxemaPreview() {
+      if (!this.adminAxemaModalOpen) return;
+      if (this.adminAxemaPreviewDebounceId) {
+        runtimeWindow.clearTimeout(this.adminAxemaPreviewDebounceId);
+      }
+      this.adminAxemaPreviewDebounceId = runtimeWindow.setTimeout(() => {
+        this.previewAxemaImport({ silent: true });
+      }, 250);
+    },
+
+    openAxemaImportModal() {
+      this.adminAxemaModalOpen = true;
+      this.adminAxemaError = "";
+      this.adminAxemaMessage = "";
+      this.refreshAxemaCsvMetadata();
+      this.scheduleAxemaPreview();
+    },
+
+    closeAxemaImportModal() {
+      this.adminAxemaModalOpen = false;
+      if (this.adminAxemaPreviewDebounceId) {
+        runtimeWindow.clearTimeout(this.adminAxemaPreviewDebounceId);
+        this.adminAxemaPreviewDebounceId = null;
+      }
+    },
+
+    getAxemaActionLabel(row) {
+      if (!row) return "Ignorera";
+      if (row.preview_type === "removed") {
+        return this.adminAxemaActionRemoveMissing ? "Radera" : "Ignorera";
+      }
+      if (row.ignored_reason) return "Ignorera";
+      const uid = String(row.uid || "");
+      const newUids = new Set((this.adminAxemaDiff?.new_tags || []).map((item) => String(item.uid || "")));
+      const changedUids = new Set(
+        (this.adminAxemaDiff?.changed_tags || []).map((item) => String(item.uid || ""))
+      );
+      if (newUids.has(uid)) return this.adminAxemaActionAddNew ? "Lägg till" : "Ignorera";
+      if (changedUids.has(uid)) return this.adminAxemaActionUpdateExisting ? "Uppdatera" : "Ignorera";
+      return "Ignorera";
+    },
+
+    getAxemaPreviewRowsWithActions() {
+      const sourceRows = (this.adminAxemaPreviewRows || []).map((row) => ({
+        ...row,
+        preview_type: "source"
+      }));
+      const removedRows = (this.adminAxemaDiff?.removed_tags || []).map((tag) => ({
+        line: "-",
+        uid: tag.uid,
+        source_value: "(saknas i importfil)",
+        house: tag.house,
+        apartment_id: tag.apartment_id,
+        is_admin: Boolean(tag.is_admin),
+        ignored_reason: "",
+        preview_type: "removed"
+      }));
+      return [...sourceRows, ...removedRows];
+    },
+
+    async handleAdminResourceSelection() {
+      if (!this.selectedResourceId) return;
+      await this.selectResource(this.selectedResourceId);
+    },
+
+    async refreshAdminContextOptions() {
+      try {
+        const api = await getApiClient();
+        if (typeof api.getAdminUsers === "function") {
+          const context = await api.getAdminUsers();
+          this.adminBookingUsers = context?.users ?? [];
+          this.adminResourceHouseOptions = context?.houses ?? [];
+          this.adminResourceApartmentOptions = context?.apartments ?? [];
+          if (!this.adminBookingApartmentId) {
+            const firstApartment = this.adminBookingUsers.find(
+              (user) => String(user.id || "").toLowerCase() !== "admin"
+            );
+            this.adminBookingApartmentId = firstApartment?.id || "";
+          }
+        }
+      } catch {
+        // non-blocking
+      }
     },
 
     async initializeAdminConsole() {
@@ -1628,6 +1840,7 @@ export function createBookingApp(options = {}) {
         if (typeof api.getAdminResources === "function") {
           this.adminResources = await api.getAdminResources(true);
         }
+        await this.refreshAdminContextOptions();
       } catch (error) {
         if (this.handleSessionExpired(error)) {
           return;
@@ -1643,42 +1856,31 @@ export function createBookingApp(options = {}) {
       this.adminAxemaCsvFileName = file.name || "";
       const text = await file.text();
       this.adminAxemaCsvText = String(text || "");
+      this.refreshAxemaCsvMetadata();
+      this.scheduleAxemaPreview();
     },
 
-    async saveAxemaRules() {
+    onAxemaCsvInputChanged() {
+      this.refreshAxemaCsvMetadata();
+      this.scheduleAxemaPreview();
+    },
+
+    onAxemaRulesChanged() {
+      this.scheduleAxemaPreview();
+    },
+
+    async previewAxemaImport({ silent = false } = {}) {
       this.adminAxemaError = "";
-      this.adminAxemaMessage = "";
-      try {
-        const api = await getApiClient();
-        if (typeof api.saveAxemaImportRules !== "function") {
-          this.adminAxemaMessage = "Regelsparning stöds inte i denna miljö.";
-          return;
-        }
-        const response = await api.saveAxemaImportRules(this.adminAxemaRules);
-        if (response?.rules) {
-          this.adminAxemaRules = {
-            ...this.adminAxemaRules,
-            ...response.rules,
-            admin_access_groups: Array.isArray(response.rules.admin_access_groups)
-              ? [...response.rules.admin_access_groups]
-              : []
-          };
-        }
-        this.adminAxemaMessage = "Importregler sparade.";
-      } catch (error) {
-        if (this.handleSessionExpired(error)) {
-          return;
-        }
-        this.adminAxemaError = "Kunde inte spara importregler.";
+      if (!silent) {
+        this.adminAxemaMessage = "";
       }
-    },
-
-    async previewAxemaImport() {
-      this.adminAxemaError = "";
-      this.adminAxemaMessage = "";
       const csvText = String(this.adminAxemaCsvText || "").trim();
       if (!csvText) {
-        this.adminAxemaError = "Ladda upp eller klistra in CSV först.";
+        this.adminAxemaDiff = null;
+        this.adminAxemaPreviewRows = [];
+        if (!silent) {
+          this.adminAxemaError = "Ladda upp eller klistra in CSV först.";
+        }
         return;
       }
       this.adminAxemaLoading = true;
@@ -1693,6 +1895,7 @@ export function createBookingApp(options = {}) {
           rules: this.adminAxemaRules
         });
         this.adminAxemaPreviewRows = result?.parsed_rows ?? [];
+        this.adminAxemaHeaders = result?.headers ?? this.adminAxemaHeaders;
         this.adminAxemaAvailableAccessGroups = result?.available_access_groups ?? [];
         this.adminAxemaDiff = result?.diff ?? null;
         if (result?.rules) {
@@ -1704,7 +1907,9 @@ export function createBookingApp(options = {}) {
               : []
           };
         }
-        this.adminAxemaMessage = "Preview klar. Granska diffen innan du importerar.";
+        if (!silent) {
+          this.adminAxemaMessage = "Preview klar. Granska diffen innan du importerar.";
+        }
       } catch (error) {
         if (this.handleSessionExpired(error)) {
           return;
@@ -1745,7 +1950,8 @@ export function createBookingApp(options = {}) {
           }
         });
         this.adminAxemaMessage = `Import klar. Nya: ${result?.applied?.added ?? 0}, uppdaterade: ${result?.applied?.updated ?? 0}, borttagna: ${result?.applied?.removed ?? 0}.`;
-        await this.previewAxemaImport();
+        await this.previewAxemaImport({ silent: true });
+        await this.refreshAdminContextOptions();
       } catch (error) {
         if (this.handleSessionExpired(error)) {
           return;
@@ -1759,7 +1965,7 @@ export function createBookingApp(options = {}) {
     openCreateResourceForm() {
       this.adminResourceError = "";
       this.adminResourceMessage = "";
-      this.adminResourceEditorOpen = true;
+      this.adminResourceModalOpen = true;
       this.adminResourceForm = {
         id: null,
         name: "",
@@ -1775,15 +1981,15 @@ export function createBookingApp(options = {}) {
         price_weekend: 0,
         is_billable: false,
         is_active: true,
-        allow_houses: "",
-        deny_apartment_ids: ""
+        allow_houses: [],
+        deny_apartment_ids: []
       };
     },
 
     openEditResourceForm(resource) {
       this.adminResourceError = "";
       this.adminResourceMessage = "";
-      this.adminResourceEditorOpen = true;
+      this.adminResourceModalOpen = true;
       this.adminResourceForm = {
         id: Number(resource.id),
         name: String(resource.name || ""),
@@ -1801,9 +2007,29 @@ export function createBookingApp(options = {}) {
           100,
         is_billable: Boolean(resource.is_billable),
         is_active: Boolean(resource.is_active ?? true),
-        allow_houses: String(resource.allow_houses || ""),
-        deny_apartment_ids: String(resource.deny_apartment_ids || "")
+        allow_houses: splitRuleListValues(resource.allow_houses),
+        deny_apartment_ids: splitRuleListValues(resource.deny_apartment_ids)
       };
+      for (const house of this.adminResourceForm.allow_houses) {
+        if (!this.adminResourceHouseOptions.includes(house)) {
+          this.adminResourceHouseOptions.push(house);
+        }
+      }
+      for (const apartmentId of this.adminResourceForm.deny_apartment_ids) {
+        if (!this.adminResourceApartmentOptions.includes(apartmentId)) {
+          this.adminResourceApartmentOptions.push(apartmentId);
+        }
+      }
+      this.adminResourceHouseOptions = [...new Set(this.adminResourceHouseOptions)].sort((a, b) =>
+        String(a).localeCompare(String(b), "sv-SE")
+      );
+      this.adminResourceApartmentOptions = [...new Set(this.adminResourceApartmentOptions)].sort((a, b) =>
+        String(a).localeCompare(String(b), "sv-SE")
+      );
+    },
+
+    closeResourceModal() {
+      this.adminResourceModalOpen = false;
     },
 
     async saveResourceForm() {
@@ -1830,8 +2056,8 @@ export function createBookingApp(options = {}) {
           price_weekend: Number(this.adminResourceForm.price_weekend),
           is_billable: Boolean(this.adminResourceForm.is_billable),
           is_active: Boolean(this.adminResourceForm.is_active),
-          allow_houses: this.adminResourceForm.allow_houses,
-          deny_apartment_ids: this.adminResourceForm.deny_apartment_ids
+          allow_houses: splitRuleListValues(this.adminResourceForm.allow_houses),
+          deny_apartment_ids: splitRuleListValues(this.adminResourceForm.deny_apartment_ids)
         };
         if (this.adminResourceForm.id) {
           await api.updateAdminResource(this.adminResourceForm.id, payload);
@@ -1843,8 +2069,9 @@ export function createBookingApp(options = {}) {
         if (typeof api.getAdminResources === "function") {
           this.adminResources = await api.getAdminResources(true);
         }
+        await this.refreshAdminContextOptions();
         await this.loadResources();
-        this.adminResourceEditorOpen = false;
+        this.adminResourceModalOpen = false;
       } catch (error) {
         if (this.handleSessionExpired(error)) {
           return;
@@ -1864,6 +2091,7 @@ export function createBookingApp(options = {}) {
         if (typeof api.getAdminResources === "function") {
           this.adminResources = await api.getAdminResources(true);
         }
+        await this.refreshAdminContextOptions();
         await this.loadResources();
         this.adminResourceMessage = "Bokningsobjekt markerat som inaktivt.";
       } catch (error) {

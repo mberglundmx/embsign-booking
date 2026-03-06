@@ -334,7 +334,17 @@ function getCsvFieldValue(row, preferredField, fallbackFieldPatterns = []) {
 
 function normalizeAxemaImportRules(rawRules = {}) {
   const candidate = typeof rawRules === "object" && rawRules ? rawRules : {};
-  const adminGroups = normalizeListValues(candidate.admin_access_groups).map((value) => value.toLowerCase());
+  const adminGroupsRaw = normalizeListValues(candidate.admin_access_groups);
+  const seenGroups = new Set();
+  const adminGroups = [];
+  for (const group of adminGroupsRaw) {
+    const normalized = String(group || "").trim();
+    if (!normalized) continue;
+    const dedupeKey = normalized.toLowerCase();
+    if (seenGroups.has(dedupeKey)) continue;
+    seenGroups.add(dedupeKey);
+    adminGroups.push(normalized);
+  }
   return {
     apartment_source_field: String(
       candidate.apartment_source_field || DEFAULT_AXEMA_IMPORT_RULES.apartment_source_field
@@ -379,7 +389,7 @@ function parseAxemaCsvRows(csvText, importRules) {
   const houseRegex = compileRegexOrThrow(rules.house_regex, "house_regex");
   const apartmentRegex = compileRegexOrThrow(rules.apartment_regex, "apartment_regex");
   const { headers, rows } = parseCsvText(csvText, ";");
-  const adminGroupSet = new Set(rules.admin_access_groups);
+  const adminGroupSet = new Set(rules.admin_access_groups.map((value) => String(value || "").toLowerCase()));
   const parsedRows = rows.map((row) => {
     const uid = getCsvFieldValue(row, rules.uid_field, ["identitetsid", "uid"]);
     const accessGroup = normalizeAccessGroup(
@@ -394,7 +404,7 @@ function parseAxemaCsvRows(csvText, importRules) {
         ? true
         : statusRaw.toLowerCase() === String(rules.active_status_value).toLowerCase();
     const isAdmin = adminGroupSet.has(accessGroup.toLowerCase());
-    const apartmentId = house && apartmentCode ? `${house}-${apartmentCode}` : isAdmin ? "admin" : "";
+    const apartmentId = isAdmin ? "admin" : house && apartmentCode ? `${house}-${apartmentCode}` : "";
     let ignoredReason = "";
     if (!uid) {
       ignoredReason = "missing_uid";
@@ -1995,6 +2005,29 @@ async function handleRequest(request, env) {
       return json({ status: "ok" }, 200, headers);
     }
 
+    if (method === "GET" && url.pathname === "/api/admin/users") {
+      if (!isAdmin) return errorResponse(403, "forbidden");
+      const rows = await all(
+        db,
+        `
+        SELECT id, house
+        FROM apartments
+        WHERE tenant_id = ? AND is_active = 1
+        ORDER BY CASE WHEN LOWER(id) = 'admin' THEN 0 ELSE 1 END, id ASC
+        `,
+        tenantId
+      );
+      const users = rows.map((row) => ({
+        id: String(row.id || "").trim(),
+        house: String(row.house || "").trim()
+      }));
+      const apartments = users.filter((user) => user.id && user.id.toLowerCase() !== "admin");
+      const houses = [...new Set(apartments.map((user) => user.house).filter(Boolean))].sort((a, b) =>
+        String(a).localeCompare(String(b), "sv-SE")
+      );
+      return json({ users, houses, apartments: apartments.map((item) => item.id) }, 200, headers);
+    }
+
     if (method === "GET" && url.pathname === "/api/admin/axema/rules") {
       if (!isAdmin) return errorResponse(403, "forbidden");
       const rules = await getAxemaImportRules(db, tenantId);
@@ -2025,7 +2058,6 @@ async function handleRequest(request, env) {
         }
         throw error;
       }
-      await saveAxemaImportRules(db, tenantId, normalizedRules);
       const existingTags = await all(
         db,
         `
