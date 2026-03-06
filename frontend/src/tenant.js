@@ -55,10 +55,11 @@ export function storeTenantId(tenantId, storage = globalThis?.localStorage) {
 
 export function detectTenantId(windowObject = globalThis?.window) {
   if (!windowObject?.location) return "";
-  const hostname = String(windowObject.location.hostname || "")
+  const location = windowObject.location;
+  const hostname = String(location.hostname || "")
     .trim()
     .toLowerCase();
-  const fromHostname = getTenantIdFromHostname(windowObject.location.hostname, ROOT_DOMAIN);
+  const fromHostname = getTenantIdFromHostname(location.hostname, ROOT_DOMAIN);
   if (fromHostname) return fromHostname;
   const normalizedRootDomain = String(ROOT_DOMAIN || DEFAULT_ROOT_DOMAIN)
     .trim()
@@ -66,10 +67,14 @@ export function detectTenantId(windowObject = globalThis?.window) {
   if (hostname === normalizedRootDomain || hostname.endsWith(`.${normalizedRootDomain}`)) {
     return "";
   }
-  const fromPath = getTenantIdFromPath(windowObject.location.pathname);
+  const fromPath = getTenantIdFromPath(location.pathname);
   if (fromPath) return fromPath;
-  const fromSearch = getTenantIdFromSearch(windowObject.location.search);
+  const fromSearch = getTenantIdFromSearch(location.search);
   if (fromSearch) return fromSearch;
+  const pathname = String(location.pathname || "/");
+  if (pathname === "/" || pathname === "") {
+    return "";
+  }
   return getStoredTenantId(windowObject.localStorage);
 }
 

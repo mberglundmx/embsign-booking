@@ -84,5 +84,7 @@ Pages Function (`frontend/functions/api/[[path]].js`) proxar `/api/*` till rätt
 Valfria env vars för att styra proxy-målet:
 
 - `WORKER_PREVIEW_URL` (full URL, högst prioritet)
+- `WORKER_PRODUCTION_URL` (full URL för produktionsbrancher; används före default-URL)
 - `WORKER_NAME` (default `embsign-booking`)
 - `WORKER_ACCOUNT_SUBDOMAIN` (default `embsign`)
+- `PRODUCTION_BRANCHES` (komma-separerad lista; default `main,master,production,prod`)
