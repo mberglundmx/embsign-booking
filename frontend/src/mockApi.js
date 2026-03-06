@@ -623,6 +623,14 @@ function normalizeFieldKey(value) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function normalizeFieldKeyLoose(value) {
+  return normalizeFieldKey(value).replace(/[aeiouy]/g, "");
+}
+
+function normalizeAccessGroupMatchKey(value) {
+  return normalizeFieldKeyLoose(value);
+}
+
 function getFieldValue(row, preferredField, fallbackPatterns = []) {
   const exact = row?.[preferredField];
   if (exact !== undefined && exact !== null && String(exact).trim() !== "") {
@@ -630,15 +638,25 @@ function getFieldValue(row, preferredField, fallbackPatterns = []) {
   }
   const keys = Object.keys(row || {});
   const preferred = normalizeFieldKey(preferredField);
+  const preferredLoose = normalizeFieldKeyLoose(preferredField);
   const fallback = fallbackPatterns.map((item) => normalizeFieldKey(item)).filter(Boolean);
+  const fallbackLoose = fallbackPatterns.map((item) => normalizeFieldKeyLoose(item)).filter(Boolean);
   for (const key of keys) {
-    if (normalizeFieldKey(key) === preferred) {
+    const strict = normalizeFieldKey(key);
+    const loose = normalizeFieldKeyLoose(key);
+    if (strict === preferred || loose === preferredLoose) {
       return String(row[key] || "").trim();
     }
   }
   for (const key of keys) {
     const normalized = normalizeFieldKey(key);
-    if (fallback.some((pattern) => normalized.includes(pattern) || pattern.includes(normalized))) {
+    const normalizedLoose = normalizeFieldKeyLoose(key);
+    if (
+      fallback.some((pattern) => normalized.includes(pattern) || pattern.includes(normalized)) ||
+      fallbackLoose.some(
+        (pattern) => normalizedLoose.includes(pattern) || pattern.includes(normalizedLoose)
+      )
+    ) {
       return String(row[key] || "").trim();
     }
   }
@@ -653,7 +671,9 @@ function parseImport(csvText, rules) {
   normalizedRules.admin_access_groups = normalizeList(normalizedRules.admin_access_groups);
   const houseRegex = new RegExp(normalizedRules.house_regex);
   const apartmentRegex = new RegExp(normalizedRules.apartment_regex);
-  const adminGroupSet = new Set(normalizedRules.admin_access_groups.map((item) => item.toLowerCase()));
+  const adminGroupSet = new Set(
+    normalizedRules.admin_access_groups.map((item) => normalizeAccessGroupMatchKey(item)).filter(Boolean)
+  );
   const { headers, rows } = parseCsv(csvText);
   const parsedRows = rows.map((row) => {
     const uid = getFieldValue(row, normalizedRules.uid_field, ["identitetsid", "uid"]);
@@ -668,7 +688,9 @@ function parseImport(csvText, rules) {
       .map((item) => item.trim())
       .filter(Boolean);
     const status = getFieldValue(row, normalizedRules.status_field, ["identitetsstatus", "status"]);
-    const isAdmin = accessGroupList.some((group) => adminGroupSet.has(group.toLowerCase()));
+    const isAdmin = accessGroupList.some((group) =>
+      adminGroupSet.has(normalizeAccessGroupMatchKey(group))
+    );
     const isActive =
       String(normalizedRules.active_status_value || "").trim() === "" ||
       status === String(normalizedRules.active_status_value);

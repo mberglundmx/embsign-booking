@@ -261,6 +261,10 @@ function normalizeCsvFieldName(value) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function normalizeCsvFieldNameLoose(value) {
+  return normalizeCsvFieldName(value).replace(/[aeiouy]/g, "");
+}
+
 export function getHostnameFromAddress(value = "") {
   const trimmed = value.trim();
   if (!trimmed) return "";
@@ -1714,10 +1718,17 @@ export function createBookingApp(options = {}) {
       const pickHeader = (current, candidates = []) => {
         if (headers.includes(current)) return current;
         const normalizedCandidates = candidates.map((candidate) => normalizeCsvFieldName(candidate));
+        const normalizedCandidatesLoose = candidates.map((candidate) =>
+          normalizeCsvFieldNameLoose(candidate)
+        );
         const match = headers.find((header) => {
           const normalizedHeader = normalizeCsvFieldName(header);
+          const normalizedHeaderLoose = normalizeCsvFieldNameLoose(header);
           return normalizedCandidates.some(
             (candidate) => normalizedHeader.includes(candidate) || candidate.includes(normalizedHeader)
+          ) || normalizedCandidatesLoose.some(
+            (candidate) =>
+              normalizedHeaderLoose.includes(candidate) || candidate.includes(normalizedHeaderLoose)
           );
         });
         return match || current;
@@ -1752,12 +1763,17 @@ export function createBookingApp(options = {}) {
       const groupLookup = new Map(
         availableGroups.map((group) => [normalizeCsvFieldName(group), group])
       );
+      const groupLookupLoose = new Map(
+        availableGroups.map((group) => [normalizeCsvFieldNameLoose(group), group])
+      );
       this.adminAxemaRules.admin_access_groups = splitRuleListValues(
         this.adminAxemaRules.admin_access_groups
       )
         .map((group) => {
           if (availableGroups.length === 0) return group;
-          const resolved = groupLookup.get(normalizeCsvFieldName(group));
+          const resolved =
+            groupLookup.get(normalizeCsvFieldName(group)) ||
+            groupLookupLoose.get(normalizeCsvFieldNameLoose(group));
           return resolved || "";
         })
         .filter(Boolean);
@@ -1800,9 +1816,13 @@ export function createBookingApp(options = {}) {
       const changedUids = new Set(
         (this.adminAxemaDiff?.changed_tags || []).map((item) => String(item.uid || ""))
       );
+      const unchangedUids = new Set(
+        (this.adminAxemaDiff?.unchanged_tags || []).map((item) => String(item.uid || ""))
+      );
       if (newUids.has(uid)) return this.adminAxemaActionAddNew ? "Lägg till" : "Ignorera";
       if (changedUids.has(uid)) return this.adminAxemaActionUpdateExisting ? "Uppdatera" : "Ignorera";
-      return "Ignorera";
+      if (unchangedUids.has(uid)) return "Ingen ändring";
+      return "Ingen ändring";
     },
 
     getAxemaActionPillClass(actionLabel) {
@@ -1912,8 +1932,17 @@ export function createBookingApp(options = {}) {
       const file = event?.target?.files?.[0];
       if (!file) return;
       this.adminAxemaCsvFileName = file.name || "";
-      const text = await file.text();
-      this.adminAxemaCsvText = String(text || "");
+      const buffer = await file.arrayBuffer();
+      let decodedText = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+      const utf8ReplacementCount = (decodedText.match(/\uFFFD/g) || []).length;
+      if (utf8ReplacementCount > 0) {
+        const latinText = new TextDecoder("windows-1252", { fatal: false }).decode(buffer);
+        const latinReplacementCount = (latinText.match(/\uFFFD/g) || []).length;
+        if (latinReplacementCount <= utf8ReplacementCount) {
+          decodedText = latinText;
+        }
+      }
+      this.adminAxemaCsvText = String(decodedText || "");
       this.refreshAxemaCsvMetadata();
       this.scheduleAxemaPreview();
     },

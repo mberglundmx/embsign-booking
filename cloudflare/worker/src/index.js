@@ -307,6 +307,10 @@ function normalizeFieldKey(value) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function normalizeFieldKeyLoose(value) {
+  return normalizeFieldKey(value).replace(/[aeiouy]/g, "");
+}
+
 function getCsvFieldValue(row, preferredField, fallbackFieldPatterns = []) {
   const exact = row?.[preferredField];
   if (exact !== undefined && exact !== null && String(exact).trim() !== "") {
@@ -314,19 +318,30 @@ function getCsvFieldValue(row, preferredField, fallbackFieldPatterns = []) {
   }
   const keys = Object.keys(row || {});
   const preferredKey = normalizeFieldKey(preferredField);
+  const preferredLooseKey = normalizeFieldKeyLoose(preferredField);
   const fallbackKeys = fallbackFieldPatterns
     .map((item) => normalizeFieldKey(item))
     .filter(Boolean);
+  const fallbackLooseKeys = fallbackFieldPatterns
+    .map((item) => normalizeFieldKeyLoose(item))
+    .filter(Boolean);
   for (const key of keys) {
     const normalized = normalizeFieldKey(key);
-    if (normalized && normalized === preferredKey) {
+    const normalizedLoose = normalizeFieldKeyLoose(key);
+    if (normalized && (normalized === preferredKey || normalizedLoose === preferredLooseKey)) {
       return String(row[key] || "").trim();
     }
   }
   for (const key of keys) {
     const normalized = normalizeFieldKey(key);
+    const normalizedLoose = normalizeFieldKeyLoose(key);
     if (!normalized) continue;
-    if (fallbackKeys.some((pattern) => normalized.includes(pattern) || pattern.includes(normalized))) {
+    if (
+      fallbackKeys.some((pattern) => normalized.includes(pattern) || pattern.includes(normalized)) ||
+      fallbackLooseKeys.some(
+        (pattern) => normalizedLoose.includes(pattern) || pattern.includes(normalizedLoose)
+      )
+    ) {
       return String(row[key] || "").trim();
     }
   }
@@ -385,6 +400,10 @@ function normalizeAccessGroup(value) {
   return String(value || "").trim();
 }
 
+function normalizeAccessGroupMatchKey(value) {
+  return normalizeFieldKeyLoose(value);
+}
+
 function parseAccessGroups(value) {
   const normalized = String(value || "")
     .replace(/\uFFFD/g, "")
@@ -401,7 +420,9 @@ function parseAxemaCsvRows(csvText, importRules) {
   const houseRegex = compileRegexOrThrow(rules.house_regex, "house_regex");
   const apartmentRegex = compileRegexOrThrow(rules.apartment_regex, "apartment_regex");
   const { headers, rows } = parseCsvText(csvText, ";");
-  const adminGroupSet = new Set(rules.admin_access_groups.map((value) => String(value || "").toLowerCase()));
+  const adminGroupSet = new Set(
+    rules.admin_access_groups.map((value) => normalizeAccessGroupMatchKey(value)).filter(Boolean)
+  );
   const parsedRows = rows.map((row) => {
     const uid = getCsvFieldValue(row, rules.uid_field, ["identitetsid", "uid"]);
     const accessGroupRaw = normalizeAccessGroup(
@@ -416,7 +437,9 @@ function parseAxemaCsvRows(csvText, importRules) {
       rules.active_status_value === ""
         ? true
         : statusRaw.toLowerCase() === String(rules.active_status_value).toLowerCase();
-    const isAdmin = accessGroupList.some((group) => adminGroupSet.has(group.toLowerCase()));
+    const isAdmin = accessGroupList.some((group) =>
+      adminGroupSet.has(normalizeAccessGroupMatchKey(group))
+    );
     const apartmentId = isAdmin ? "admin" : house && apartmentCode ? `${house}-${apartmentCode}` : "";
     let ignoredReason = "";
     if (!uid) {
@@ -654,6 +677,68 @@ async function upsertRfidTag(db, tenantId, tag) {
     normalized.is_admin,
     normalized.is_active
   );
+}
+
+function buildUpsertRfidTagStatement(db, tenantId, tag) {
+  const normalized = normalizeTagRecord(tag);
+  return db
+    .prepare(
+      `
+      INSERT INTO rfid_tags (
+        tenant_id, uid, apartment_id, house, lgh_internal, skv_lgh,
+        access_groups, is_admin, is_active
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(tenant_id, uid) DO UPDATE SET
+        apartment_id = excluded.apartment_id,
+        house = excluded.house,
+        lgh_internal = excluded.lgh_internal,
+        skv_lgh = excluded.skv_lgh,
+        access_groups = excluded.access_groups,
+        is_admin = excluded.is_admin,
+        is_active = excluded.is_active
+      `
+    )
+    .bind(
+      tenantId,
+      normalized.uid,
+      normalized.apartment_id,
+      normalized.house,
+      normalized.lgh_internal,
+      normalized.skv_lgh,
+      normalized.access_groups,
+      normalized.is_admin,
+      normalized.is_active
+    );
+}
+
+function buildUpsertApartmentFromTagStatement(db, tenantId, tag, fallbackPasswordHash) {
+  const normalized = normalizeTagRecord(tag);
+  if (normalized.is_admin || !normalized.apartment_id) return null;
+  const passwordHash = String(fallbackPasswordHash || "").trim();
+  if (!passwordHash) return null;
+  return db
+    .prepare(
+      `
+      INSERT INTO apartments (tenant_id, id, password_hash, is_active, house, lgh_internal, skv_lgh, access_groups)
+      VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+      ON CONFLICT(tenant_id, id) DO UPDATE SET
+        house = excluded.house,
+        lgh_internal = excluded.lgh_internal,
+        skv_lgh = excluded.skv_lgh,
+        access_groups = excluded.access_groups,
+        is_active = 1
+      `
+    )
+    .bind(
+      tenantId,
+      normalized.apartment_id,
+      passwordHash,
+      normalized.house,
+      normalized.lgh_internal,
+      normalized.skv_lgh,
+      normalized.access_groups
+    );
 }
 
 async function ensureApartmentFromTag(db, tenantId, tag, fallbackPasswordHash = "") {
@@ -2194,38 +2279,46 @@ async function handleRequest(request, env) {
       let removed = 0;
       let processed = 0;
       const fallbackApartmentPasswordHash = await sha256(`axema:${tenantId}:${importId}`);
+      const chunkSize = 250;
       try {
-        for (const operation of operations) {
-          if (operation.type === "remove") {
-            const deleteResult = await run(
-              db,
-              "DELETE FROM rfid_tags WHERE tenant_id = ? AND uid = ?",
-              tenantId,
-              operation.tag.uid
-            );
-            removed += Number(deleteResult?.meta?.changes || 0);
-          } else {
-            await upsertRfidTag(db, tenantId, operation.tag);
-            await ensureApartmentFromTag(
+        for (let startIndex = 0; startIndex < operations.length; startIndex += chunkSize) {
+          const chunk = operations.slice(startIndex, startIndex + chunkSize);
+          const statements = [];
+          for (const operation of chunk) {
+            if (operation.type === "remove") {
+              statements.push(
+                db
+                  .prepare("DELETE FROM rfid_tags WHERE tenant_id = ? AND uid = ?")
+                  .bind(tenantId, String(operation.tag.uid || "").trim())
+              );
+              removed += 1;
+              continue;
+            }
+            statements.push(buildUpsertRfidTagStatement(db, tenantId, operation.tag));
+            const apartmentStatement = buildUpsertApartmentFromTagStatement(
               db,
               tenantId,
               operation.tag,
               fallbackApartmentPasswordHash
             );
+            if (apartmentStatement) {
+              statements.push(apartmentStatement);
+            }
             if (operation.type === "add") added += 1;
             if (operation.type === "update") updated += 1;
           }
-          processed += 1;
-          if (processed % 25 === 0 || processed === totalOperations) {
-            await setAxemaImportStatus(db, tenantId, {
-              import_id: importId,
-              phase: "running",
-              processed,
-              total: totalOperations,
-              done: false,
-              updated_at: nowIso()
-            });
+          if (statements.length > 0) {
+            await db.batch(statements);
           }
+          processed += chunk.length;
+          await setAxemaImportStatus(db, tenantId, {
+            import_id: importId,
+            phase: "running",
+            processed,
+            total: totalOperations,
+            done: false,
+            updated_at: nowIso()
+          });
         }
       } catch (error) {
         await setAxemaImportStatus(db, tenantId, {
