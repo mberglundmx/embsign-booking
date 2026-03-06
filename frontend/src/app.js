@@ -26,6 +26,7 @@ const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
 const TURNSTILE_SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 const CAPTCHA_CONFIG_PATH = "/public/captcha-config";
 const CAPTCHA_DEBUG_ENABLED = import.meta.env.VITE_CAPTCHA_DEBUG === "true";
+const AXEMA_PREVIEW_DEBOUNCE_MS = 2200;
 const DEFAULT_TENANT_ID =
   Boolean(import.meta.vitest) || import.meta.env?.MODE === "test" || import.meta.env?.VITEST === "true"
     ? "test-brf"
@@ -596,6 +597,15 @@ export function createBookingApp(options = {}) {
     adminAxemaActionRemoveMissing: true,
     adminAxemaLoading: false,
     adminAxemaPreviewDebounceId: null,
+    adminAxemaImportPollTimerId: null,
+    adminAxemaImportProgress: {
+      active: false,
+      importId: "",
+      processed: 0,
+      total: 0,
+      done: false,
+      phase: "idle"
+    },
     adminAxemaMessage: "",
     adminAxemaError: "",
     adminBookingUsers: [],
@@ -1647,6 +1657,18 @@ export function createBookingApp(options = {}) {
         runtimeWindow.clearTimeout(this.adminAxemaPreviewDebounceId);
         this.adminAxemaPreviewDebounceId = null;
       }
+      if (this.adminAxemaImportPollTimerId) {
+        runtimeWindow.clearInterval(this.adminAxemaImportPollTimerId);
+        this.adminAxemaImportPollTimerId = null;
+      }
+      this.adminAxemaImportProgress = {
+        active: false,
+        importId: "",
+        processed: 0,
+        total: 0,
+        done: false,
+        phase: "idle"
+      };
       this.adminAxemaMessage = "";
       this.adminAxemaError = "";
       this.adminBookingUsers = [];
@@ -1718,8 +1740,12 @@ export function createBookingApp(options = {}) {
       const availableGroups = [
         ...new Set(
           rows
-            .map((row) => String(row?.[accessField] || "").trim())
-            .filter(Boolean)
+            .flatMap((row) =>
+              String(row?.[accessField] || "")
+                .split("|")
+                .map((entry) => entry.trim())
+                .filter(Boolean)
+            )
         )
       ].sort((a, b) => a.localeCompare(b, "sv-SE"));
       this.adminAxemaAvailableAccessGroups = availableGroups;
@@ -1744,7 +1770,7 @@ export function createBookingApp(options = {}) {
       }
       this.adminAxemaPreviewDebounceId = runtimeWindow.setTimeout(() => {
         this.previewAxemaImport({ silent: true });
-      }, 250);
+      }, AXEMA_PREVIEW_DEBOUNCE_MS);
     },
 
     openAxemaImportModal() {
@@ -1779,6 +1805,22 @@ export function createBookingApp(options = {}) {
       return "Ignorera";
     },
 
+    getAxemaActionPillClass(actionLabel) {
+      if (actionLabel === "Lägg till") return "bg-emerald-100 text-emerald-800 border border-emerald-200";
+      if (actionLabel === "Radera") return "bg-rose-100 text-rose-800 border border-rose-200";
+      if (actionLabel === "Uppdatera") return "bg-amber-100 text-amber-800 border border-amber-200";
+      return "bg-slate-100 text-slate-700 border border-slate-200";
+    },
+
+    getAxemaProgressPercent() {
+      const total = Number(this.adminAxemaImportProgress.total || 0);
+      const processed = Number(this.adminAxemaImportProgress.processed || 0);
+      if (total <= 0) {
+        return this.adminAxemaImportProgress.done ? 100 : 0;
+      }
+      return Math.max(0, Math.min(100, Math.round((processed / total) * 100)));
+    },
+
     getAxemaPreviewRowsWithActions() {
       const sourceRows = (this.adminAxemaPreviewRows || []).map((row) => ({
         ...row,
@@ -1799,7 +1841,23 @@ export function createBookingApp(options = {}) {
 
     async handleAdminResourceSelection() {
       if (!this.selectedResourceId) return;
+      if (this.isAdminMode && this.isSetupStep) {
+        return;
+      }
       await this.selectResource(this.selectedResourceId);
+    },
+
+    async openAdminBookingSchedule() {
+      if (!this.adminBookingApartmentId) {
+        this.showError("Välj användare först.");
+        return;
+      }
+      if (!this.selectedResourceId) {
+        this.showError("Välj bokningsobjekt först.");
+        return;
+      }
+      await this.selectResource(this.selectedResourceId);
+      this.authenticatedStep = "schedule";
     },
 
     async refreshAdminContextOptions() {
@@ -1866,7 +1924,46 @@ export function createBookingApp(options = {}) {
     },
 
     onAxemaRulesChanged() {
+      this.refreshAxemaCsvMetadata();
       this.scheduleAxemaPreview();
+    },
+
+    getExpectedAxemaImportOperations() {
+      const summary = this.adminAxemaDiff?.summary || {};
+      const addCount = this.adminAxemaActionAddNew ? Number(summary.new_count || 0) : 0;
+      const updateCount = this.adminAxemaActionUpdateExisting ? Number(summary.changed_count || 0) : 0;
+      const removeCount = this.adminAxemaActionRemoveMissing ? Number(summary.removed_count || 0) : 0;
+      return addCount + updateCount + removeCount;
+    },
+
+    stopAxemaImportPolling() {
+      if (this.adminAxemaImportPollTimerId) {
+        runtimeWindow.clearInterval(this.adminAxemaImportPollTimerId);
+        this.adminAxemaImportPollTimerId = null;
+      }
+    },
+
+    async pollAxemaImportStatus(importId) {
+      if (!importId) return;
+      try {
+        const api = await getApiClient();
+        if (typeof api.getAxemaImportStatus !== "function") return;
+        const status = await api.getAxemaImportStatus(importId);
+        if (!status) return;
+        this.adminAxemaImportProgress = {
+          active: !status.done,
+          importId,
+          processed: Number(status.processed || 0),
+          total: Number(status.total || 0),
+          done: Boolean(status.done),
+          phase: String(status.phase || "running")
+        };
+        if (status.done) {
+          this.stopAxemaImportPolling();
+        }
+      } catch {
+        // ignore transient poll errors
+      }
     },
 
     async previewAxemaImport({ silent = false } = {}) {
@@ -1934,9 +2031,28 @@ export function createBookingApp(options = {}) {
         return;
       }
       this.adminAxemaLoading = true;
+      this.stopAxemaImportPolling();
+      const importId = `imp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      this.adminAxemaImportProgress = {
+        active: true,
+        importId,
+        processed: 0,
+        total: this.getExpectedAxemaImportOperations(),
+        done: false,
+        phase: "running"
+      };
+      this.adminAxemaImportPollTimerId = runtimeWindow.setInterval(() => {
+        this.pollAxemaImportStatus(importId);
+      }, 700);
       try {
         const api = await getApiClient();
         if (typeof api.applyAxemaImport !== "function") {
+          this.adminAxemaImportProgress = {
+            ...this.adminAxemaImportProgress,
+            active: false,
+            done: true,
+            phase: "unsupported"
+          };
           this.adminAxemaError = "Import stöds inte i denna miljö.";
           return;
         }
@@ -1947,8 +2063,17 @@ export function createBookingApp(options = {}) {
             add_new: this.adminAxemaActionAddNew,
             update_existing: this.adminAxemaActionUpdateExisting,
             remove_missing: this.adminAxemaActionRemoveMissing
-          }
+          },
+          import_id: importId
         });
+        this.adminAxemaImportProgress = {
+          active: false,
+          importId,
+          processed: Number(result?.progress?.processed ?? this.adminAxemaImportProgress.total ?? 0),
+          total: Number(result?.progress?.total ?? this.adminAxemaImportProgress.total ?? 0),
+          done: true,
+          phase: "done"
+        };
         this.adminAxemaMessage = `Import klar. Nya: ${result?.applied?.added ?? 0}, uppdaterade: ${result?.applied?.updated ?? 0}, borttagna: ${result?.applied?.removed ?? 0}.`;
         await this.previewAxemaImport({ silent: true });
         await this.refreshAdminContextOptions();
@@ -1956,8 +2081,15 @@ export function createBookingApp(options = {}) {
         if (this.handleSessionExpired(error)) {
           return;
         }
+        this.adminAxemaImportProgress = {
+          ...this.adminAxemaImportProgress,
+          active: false,
+          done: true,
+          phase: "failed"
+        };
         this.adminAxemaError = "Kunde inte utföra import.";
       } finally {
+        this.stopAxemaImportPolling();
         this.adminAxemaLoading = false;
       }
     },

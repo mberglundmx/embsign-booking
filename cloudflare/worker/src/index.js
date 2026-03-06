@@ -5,6 +5,7 @@ const PASSWORD_MIN_LENGTH = 4;
 const MAX_AVAILABILITY_RANGE_DAYS = 366;
 const DEFAULT_ROOT_DOMAIN = "bokningsportal.app";
 const AXEMA_RULES_CONFIG_KEY = "axema_import_rules_v1";
+const AXEMA_IMPORT_STATUS_CONFIG_KEY = "axema_import_status_v1";
 const DEFAULT_AXEMA_IMPORT_RULES = {
   apartment_source_field: "OrgGrupp",
   house_regex: "(\\d)-LGH.*",
@@ -384,6 +385,17 @@ function normalizeAccessGroup(value) {
   return String(value || "").trim();
 }
 
+function parseAccessGroups(value) {
+  const normalized = String(value || "")
+    .replace(/\uFFFD/g, "")
+    .trim();
+  if (!normalized) return [];
+  return normalized
+    .split("|")
+    .map((entry) => normalizeAccessGroup(entry))
+    .filter(Boolean);
+}
+
 function parseAxemaCsvRows(csvText, importRules) {
   const rules = normalizeAxemaImportRules(importRules);
   const houseRegex = compileRegexOrThrow(rules.house_regex, "house_regex");
@@ -392,9 +404,10 @@ function parseAxemaCsvRows(csvText, importRules) {
   const adminGroupSet = new Set(rules.admin_access_groups.map((value) => String(value || "").toLowerCase()));
   const parsedRows = rows.map((row) => {
     const uid = getCsvFieldValue(row, rules.uid_field, ["identitetsid", "uid"]);
-    const accessGroup = normalizeAccessGroup(
+    const accessGroupRaw = normalizeAccessGroup(
       getCsvFieldValue(row, rules.access_group_field, ["behorighetsgrupp", "accessgroup"])
     );
+    const accessGroupList = parseAccessGroups(accessGroupRaw);
     const statusRaw = getCsvFieldValue(row, rules.status_field, ["identitetsstatus", "status"]);
     const sourceValue = getCsvFieldValue(row, rules.apartment_source_field, ["orggrupp", "placering"]);
     const house = getFirstRegexCapture(houseRegex, sourceValue);
@@ -403,7 +416,7 @@ function parseAxemaCsvRows(csvText, importRules) {
       rules.active_status_value === ""
         ? true
         : statusRaw.toLowerCase() === String(rules.active_status_value).toLowerCase();
-    const isAdmin = adminGroupSet.has(accessGroup.toLowerCase());
+    const isAdmin = accessGroupList.some((group) => adminGroupSet.has(group.toLowerCase()));
     const apartmentId = isAdmin ? "admin" : house && apartmentCode ? `${house}-${apartmentCode}` : "";
     let ignoredReason = "";
     if (!uid) {
@@ -420,7 +433,8 @@ function parseAxemaCsvRows(csvText, importRules) {
       house,
       apartment_code: apartmentCode,
       apartment_id: apartmentId,
-      access_group: accessGroup,
+      access_group: accessGroupRaw,
+      access_group_list: accessGroupList,
       status: statusRaw,
       is_admin: isAdmin,
       is_active: isActive,
@@ -435,16 +449,16 @@ function parseAxemaCsvRows(csvText, importRules) {
       house: row.house,
       lgh_internal: row.apartment_code,
       skv_lgh: row.apartment_code,
-      access_groups: row.access_group,
+      access_groups: row.access_group_list.join("|"),
       is_admin: row.is_admin ? 1 : 0,
       is_active: row.is_active ? 1 : 0
     }));
   const availableAccessGroups = [
     ...new Set(
       parsedRows
-        .map((row) => row.access_group)
-        .filter((value) => value)
+        .flatMap((row) => row.access_group_list || [])
         .map((value) => String(value).trim())
+        .filter(Boolean)
     )
   ].sort((a, b) => a.localeCompare(b, "sv-SE"));
   return {
@@ -573,6 +587,44 @@ async function saveAxemaImportRules(db, tenantId, rules) {
   return normalizedRules;
 }
 
+function normalizeImportId(value) {
+  const input = String(value || "").trim();
+  if (!input) return `imp-${randomHex(8)}`;
+  return input.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || `imp-${randomHex(8)}`;
+}
+
+async function setAxemaImportStatus(db, tenantId, status) {
+  await run(
+    db,
+    `
+    INSERT INTO tenant_configs (tenant_id, key, value, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(tenant_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `,
+    tenantId,
+    AXEMA_IMPORT_STATUS_CONFIG_KEY,
+    JSON.stringify(status || {}),
+    nowIso()
+  );
+}
+
+async function getAxemaImportStatus(db, tenantId) {
+  const row = await first(
+    db,
+    "SELECT value FROM tenant_configs WHERE tenant_id = ? AND key = ?",
+    tenantId,
+    AXEMA_IMPORT_STATUS_CONFIG_KEY
+  );
+  if (!row?.value) return null;
+  try {
+    const parsed = JSON.parse(String(row.value));
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 async function upsertRfidTag(db, tenantId, tag) {
   const normalized = normalizeTagRecord(tag);
   await run(
@@ -604,47 +656,30 @@ async function upsertRfidTag(db, tenantId, tag) {
   );
 }
 
-async function ensureApartmentFromTag(db, tenantId, tag) {
+async function ensureApartmentFromTag(db, tenantId, tag, fallbackPasswordHash = "") {
   const normalized = normalizeTagRecord(tag);
   if (normalized.is_admin) return;
   if (!normalized.apartment_id) return;
-  const existing = await first(
-    db,
-    "SELECT id FROM apartments WHERE tenant_id = ? AND id = ?",
-    tenantId,
-    normalized.apartment_id
-  );
-  if (!existing) {
-    const randomPasswordHash = await sha256(randomPassword(24));
-    await run(
-      db,
-      `
-      INSERT INTO apartments (tenant_id, id, password_hash, is_active, house, lgh_internal, skv_lgh, access_groups)
-      VALUES (?, ?, ?, 1, ?, ?, ?, ?)
-      `,
-      tenantId,
-      normalized.apartment_id,
-      randomPasswordHash,
-      normalized.house,
-      normalized.lgh_internal,
-      normalized.skv_lgh,
-      normalized.access_groups
-    );
-    return;
-  }
+  const resolvedPasswordHash = fallbackPasswordHash || (await sha256(randomPassword(24)));
   await run(
     db,
     `
-    UPDATE apartments
-    SET house = ?, lgh_internal = ?, skv_lgh = ?, access_groups = ?, is_active = 1
-    WHERE tenant_id = ? AND id = ?
+    INSERT INTO apartments (tenant_id, id, password_hash, is_active, house, lgh_internal, skv_lgh, access_groups)
+    VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+    ON CONFLICT(tenant_id, id) DO UPDATE SET
+      house = excluded.house,
+      lgh_internal = excluded.lgh_internal,
+      skv_lgh = excluded.skv_lgh,
+      access_groups = excluded.access_groups,
+      is_active = 1
     `,
+    tenantId,
+    normalized.apartment_id,
+    resolvedPasswordHash,
     normalized.house,
     normalized.lgh_internal,
     normalized.skv_lgh,
-    normalized.access_groups,
-    tenantId,
-    normalized.apartment_id
+    normalized.access_groups
   );
 }
 
@@ -750,7 +785,8 @@ async function sessionTtlSeconds(db, tenantId) {
 async function createSession(db, tenantId, apartmentId, isAdmin) {
   const token = randomHex(32);
   const createdAt = nowIso();
-  const ttl = await sessionTtlSeconds(db, tenantId);
+  const baseTtl = await sessionTtlSeconds(db, tenantId);
+  const ttl = isAdmin ? baseTtl * 5 : baseTtl;
   const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
   await run(
     db,
@@ -2041,6 +2077,19 @@ async function handleRequest(request, env) {
       return json({ status: "ok", rules }, 200, headers);
     }
 
+    if (method === "GET" && url.pathname === "/api/admin/axema/import-status") {
+      if (!isAdmin) return errorResponse(403, "forbidden");
+      const requestedImportId = String(url.searchParams.get("import_id") || "").trim();
+      const status = await getAxemaImportStatus(db, tenantId);
+      if (!status) {
+        return json({ status: null }, 200, headers);
+      }
+      if (requestedImportId && String(status.import_id || "") !== requestedImportId) {
+        return json({ status: null }, 200, headers);
+      }
+      return json({ status }, 200, headers);
+    }
+
     if (method === "POST" && url.pathname === "/api/admin/axema/preview") {
       if (!isAdmin) return errorResponse(403, "forbidden");
       const payload = (await parseJsonBody(request)) ?? {};
@@ -2087,6 +2136,7 @@ async function handleRequest(request, env) {
       const payload = (await parseJsonBody(request)) ?? {};
       const csvText = String(payload.csv_text || "").trim();
       if (!csvText) return errorResponse(400, "missing_csv");
+      const importId = normalizeImportId(payload.import_id);
       const baseRules = payload.rules ?? (await getAxemaImportRules(db, tenantId));
       let normalizedRules;
       let parsedResult;
@@ -2112,39 +2162,99 @@ async function handleRequest(request, env) {
       );
       const diff = buildAxemaDiff(existingTags, parsedResult.parsed_tags);
       const actions = parseCsvImportActions(payload.actions ?? {});
-
-      let added = 0;
-      let updated = 0;
-      let removed = 0;
+      const operations = [];
       if (actions.add_new) {
         for (const tag of diff.new_tags) {
-          await upsertRfidTag(db, tenantId, tag);
-          await ensureApartmentFromTag(db, tenantId, tag);
-          added += 1;
+          operations.push({ type: "add", tag });
         }
       }
       if (actions.update_existing) {
         for (const change of diff.changed_tags) {
-          await upsertRfidTag(db, tenantId, change.after);
-          await ensureApartmentFromTag(db, tenantId, change.after);
-          updated += 1;
+          operations.push({ type: "update", tag: change.after });
         }
       }
       if (actions.remove_missing) {
         for (const tag of diff.removed_tags) {
-          const deleteResult = await run(
-            db,
-            "DELETE FROM rfid_tags WHERE tenant_id = ? AND uid = ?",
-            tenantId,
-            tag.uid
-          );
-          removed += Number(deleteResult?.meta?.changes || 0);
+          operations.push({ type: "remove", tag });
         }
       }
+      const totalOperations = operations.length;
+      await setAxemaImportStatus(db, tenantId, {
+        import_id: importId,
+        phase: "running",
+        processed: 0,
+        total: totalOperations,
+        done: false,
+        started_at: nowIso(),
+        updated_at: nowIso()
+      });
+
+      let added = 0;
+      let updated = 0;
+      let removed = 0;
+      let processed = 0;
+      const fallbackApartmentPasswordHash = await sha256(`axema:${tenantId}:${importId}`);
+      try {
+        for (const operation of operations) {
+          if (operation.type === "remove") {
+            const deleteResult = await run(
+              db,
+              "DELETE FROM rfid_tags WHERE tenant_id = ? AND uid = ?",
+              tenantId,
+              operation.tag.uid
+            );
+            removed += Number(deleteResult?.meta?.changes || 0);
+          } else {
+            await upsertRfidTag(db, tenantId, operation.tag);
+            await ensureApartmentFromTag(
+              db,
+              tenantId,
+              operation.tag,
+              fallbackApartmentPasswordHash
+            );
+            if (operation.type === "add") added += 1;
+            if (operation.type === "update") updated += 1;
+          }
+          processed += 1;
+          if (processed % 25 === 0 || processed === totalOperations) {
+            await setAxemaImportStatus(db, tenantId, {
+              import_id: importId,
+              phase: "running",
+              processed,
+              total: totalOperations,
+              done: false,
+              updated_at: nowIso()
+            });
+          }
+        }
+      } catch (error) {
+        await setAxemaImportStatus(db, tenantId, {
+          import_id: importId,
+          phase: "failed",
+          processed,
+          total: totalOperations,
+          done: true,
+          error: "import_failed",
+          updated_at: nowIso()
+        });
+        throw error;
+      }
+      await setAxemaImportStatus(db, tenantId, {
+        import_id: importId,
+        phase: "done",
+        processed: totalOperations,
+        total: totalOperations,
+        done: true,
+        added,
+        updated,
+        removed,
+        updated_at: nowIso()
+      });
 
       return json(
         {
           status: "ok",
+          import_id: importId,
           applied: {
             add_new: actions.add_new,
             update_existing: actions.update_existing,
@@ -2153,7 +2263,12 @@ async function handleRequest(request, env) {
             updated,
             removed
           },
-          summary: diff.summary
+          summary: diff.summary,
+          progress: {
+            processed: totalOperations,
+            total: totalOperations,
+            done: true
+          }
         },
         200,
         headers

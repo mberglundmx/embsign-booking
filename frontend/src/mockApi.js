@@ -75,6 +75,7 @@ let rfidTags = [
     is_active: 1
   }
 ];
+let axemaImportStatus = null;
 
 function getDateString(date) {
   return toLocalDateString(date);
@@ -178,6 +179,7 @@ export function resetMockState() {
     "demo-brf": { apartment_id: "admin", password: "admin" }
   };
   axemaRules = structuredClone(defaultAxemaRules);
+  axemaImportStatus = null;
   rfidTags = [
     {
       uid: "00000003127178380",
@@ -661,8 +663,12 @@ function parseImport(csvText, rules) {
     const house = String(houseMatch?.[1] ?? houseMatch?.[0] ?? "").trim();
     const apartmentCode = String(apartmentMatch?.[1] ?? apartmentMatch?.[0] ?? "").trim();
     const accessGroup = getFieldValue(row, normalizedRules.access_group_field, ["behorighetsgrupp"]);
+    const accessGroupList = String(accessGroup || "")
+      .split("|")
+      .map((item) => item.trim())
+      .filter(Boolean);
     const status = getFieldValue(row, normalizedRules.status_field, ["identitetsstatus", "status"]);
-    const isAdmin = adminGroupSet.has(accessGroup.toLowerCase());
+    const isAdmin = accessGroupList.some((group) => adminGroupSet.has(group.toLowerCase()));
     const isActive =
       String(normalizedRules.active_status_value || "").trim() === "" ||
       status === String(normalizedRules.active_status_value);
@@ -679,6 +685,7 @@ function parseImport(csvText, rules) {
       apartment_code: apartmentCode,
       apartment_id: apartmentId,
       access_group: accessGroup,
+      access_group_list: accessGroupList,
       status,
       is_admin: isAdmin,
       is_active: isActive,
@@ -693,12 +700,12 @@ function parseImport(csvText, rules) {
       house: row.house,
       lgh_internal: row.apartment_code,
       skv_lgh: row.apartment_code,
-      access_groups: row.access_group,
+      access_groups: row.access_group_list.join("|"),
       is_admin: row.is_admin ? 1 : 0,
       is_active: row.is_active ? 1 : 0
     }));
   const availableAccessGroups = [
-    ...new Set(parsedRows.map((row) => row.access_group).filter(Boolean).map((value) => value.trim()))
+    ...new Set(parsedRows.flatMap((row) => row.access_group_list || []).map((value) => value.trim()).filter(Boolean))
   ].sort((a, b) => a.localeCompare(b, "sv-SE"));
 
   const existingByUid = new Map(rfidTags.map((tag) => [tag.uid, tag]));
@@ -773,6 +780,7 @@ export function previewAxemaImport(payload = {}) {
 }
 
 export function applyAxemaImport(payload = {}) {
+  const importId = String(payload.import_id || `mock-${Date.now()}`).trim();
   const preview = previewAxemaImport(payload);
   const actions = {
     add_new: payload.actions?.add_new !== false,
@@ -790,16 +798,42 @@ export function applyAxemaImport(payload = {}) {
     const removedUids = new Set(preview.diff.removed_tags.map((tag) => tag.uid));
     rfidTags = rfidTags.filter((tag) => !removedUids.has(tag.uid));
   }
+  const total =
+    (actions.add_new ? preview.diff.new_tags.length : 0) +
+    (actions.update_existing ? preview.diff.changed_tags.length : 0) +
+    (actions.remove_missing ? preview.diff.removed_tags.length : 0);
+  axemaImportStatus = {
+    import_id: importId,
+    phase: "done",
+    processed: total,
+    total,
+    done: true,
+    updated_at: new Date().toISOString()
+  };
   return {
     status: "ok",
+    import_id: importId,
     applied: {
       ...actions,
       added: actions.add_new ? preview.diff.new_tags.length : 0,
       updated: actions.update_existing ? preview.diff.changed_tags.length : 0,
       removed: actions.remove_missing ? preview.diff.removed_tags.length : 0
     },
-    summary: preview.diff.summary
+    summary: preview.diff.summary,
+    progress: {
+      processed: total,
+      total,
+      done: true
+    }
   };
+}
+
+export function getAxemaImportStatus(importId = "") {
+  if (!axemaImportStatus) return null;
+  if (importId && String(axemaImportStatus.import_id || "") !== String(importId)) {
+    return null;
+  }
+  return structuredClone(axemaImportStatus);
 }
 
 export function getAdminResources(includeInactive = true) {

@@ -306,6 +306,14 @@ export async function applyAxemaImport(payload) {
   });
 }
 
+export async function getAxemaImportStatus(importId = "") {
+  const params = new URLSearchParams();
+  if (importId) params.set("import_id", String(importId));
+  const query = params.toString();
+  const data = await request(`/admin/axema/import-status${query ? `?${query}` : ""}`);
+  return data.status ?? null;
+}
+
 export async function getAdminResources(includeInactive = true) {
   const params = new URLSearchParams();
   if (includeInactive) {

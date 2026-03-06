@@ -339,7 +339,7 @@
           </div>
 
           <div class="card card-compact" x-show="isAdminMode" data-testid="admin-booking-target">
-            <p class="card-title text-base text-amber-900">Administratörsverktyg</p>
+            <p class="card-title text-base text-amber-900">Boka åt användare</p>
             <p class="text-xs text-amber-700">
               Välj användare och bokningsobjekt innan du går till schema.
             </p>
@@ -371,6 +371,11 @@
                   </template>
                 </select>
               </label>
+            </div>
+            <div class="mt-3">
+              <button class="btn btn-primary px-4 py-2 text-sm" @click="openAdminBookingSchedule">
+                Öppna bokning
+              </button>
             </div>
           </div>
 
@@ -846,7 +851,13 @@
                   <td class="px-2 py-1" x-text="row.house"></td>
                   <td class="px-2 py-1" x-text="row.apartment_id"></td>
                   <td class="px-2 py-1" x-text="row.is_admin ? 'Ja' : 'Nej'"></td>
-                  <td class="px-2 py-1 font-semibold" x-text="getAxemaActionLabel(row)"></td>
+                  <td class="px-2 py-1">
+                    <span
+                      class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                      :class="getAxemaActionPillClass(getAxemaActionLabel(row))"
+                      x-text="getAxemaActionLabel(row)"
+                    ></span>
+                  </td>
                   <td class="px-2 py-1 text-rose-700" x-text="row.ignored_reason"></td>
                 </tr>
               </template>
@@ -857,6 +868,21 @@
         <p class="mt-2 text-xs text-slate-500" x-show="adminAxemaCsvFileName">
           Fil: <span class="font-semibold" x-text="adminAxemaCsvFileName"></span>
         </p>
+        <div class="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2" x-show="adminAxemaLoading || adminAxemaImportProgress.total > 0">
+          <div class="flex items-center justify-between text-xs text-slate-600">
+            <span x-text="adminAxemaLoading ? 'Import pågår...' : 'Importstatus'"></span>
+            <span>
+              <span x-text="adminAxemaImportProgress.processed ?? 0"></span> /
+              <span x-text="adminAxemaImportProgress.total ?? 0"></span>
+            </span>
+          </div>
+          <div class="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+            <div
+              class="h-2 bg-brand-600 transition-all duration-300"
+              :style="`width: ${getAxemaProgressPercent()}%`"
+            ></div>
+          </div>
+        </div>
         <p class="mt-2 text-sm text-emerald-700" x-show="adminAxemaMessage" x-text="adminAxemaMessage"></p>
         <p class="mt-2 text-sm text-rose-700" x-show="adminAxemaError" x-text="adminAxemaError"></p>
 
