@@ -23,12 +23,15 @@ const DEMO_RFID_UID = import.meta.env.VITE_RFID_UID || "UID123";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 const DEPLOY_AUTO_RELOAD_ENABLED = import.meta.env.VITE_AUTO_RELOAD_ON_DEPLOY !== "false";
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
-const TURNSTILE_SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+const TURNSTILE_SCRIPT_SRC =
+  "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 const CAPTCHA_CONFIG_PATH = "/public/captcha-config";
 const CAPTCHA_DEBUG_ENABLED = import.meta.env.VITE_CAPTCHA_DEBUG === "true";
 const AXEMA_PREVIEW_DEBOUNCE_MS = 2200;
 const DEFAULT_TENANT_ID =
-  Boolean(import.meta.vitest) || import.meta.env?.MODE === "test" || import.meta.env?.VITEST === "true"
+  Boolean(import.meta.vitest) ||
+  import.meta.env?.MODE === "test" ||
+  import.meta.env?.VITEST === "true"
     ? "test-brf"
     : "";
 
@@ -63,16 +66,10 @@ async function ensureTurnstileScript(runtimeWindow) {
   turnstileScriptPromise = new Promise((resolve, reject) => {
     const existing = runtimeWindow.document.querySelector(`script[src="${TURNSTILE_SCRIPT_SRC}"]`);
     if (existing) {
-      existing.addEventListener(
-        "load",
-        () => resolve(runtimeWindow.turnstile),
-        { once: true }
-      );
-      existing.addEventListener(
-        "error",
-        () => reject(new Error("turnstile_script_load_failed")),
-        { once: true }
-      );
+      existing.addEventListener("load", () => resolve(runtimeWindow.turnstile), { once: true });
+      existing.addEventListener("error", () => reject(new Error("turnstile_script_load_failed")), {
+        once: true
+      });
       return;
     }
 
@@ -80,16 +77,10 @@ async function ensureTurnstileScript(runtimeWindow) {
     script.src = TURNSTILE_SCRIPT_SRC;
     script.async = true;
     script.defer = true;
-    script.addEventListener(
-      "load",
-      () => resolve(runtimeWindow.turnstile),
-      { once: true }
-    );
-    script.addEventListener(
-      "error",
-      () => reject(new Error("turnstile_script_load_failed")),
-      { once: true }
-    );
+    script.addEventListener("load", () => resolve(runtimeWindow.turnstile), { once: true });
+    script.addEventListener("error", () => reject(new Error("turnstile_script_load_failed")), {
+      once: true
+    });
     runtimeWindow.document.head.appendChild(script);
   });
 
@@ -231,7 +222,9 @@ function parseCsvForPreview(csvText, delimiter = ";") {
     .map((line) => line.trimEnd())
     .filter((line) => line.trim().length > 0);
   if (lines.length === 0) return { headers: [], rows: [] };
-  const headers = parseDelimitedLineClient(lines[0], delimiter).map((entry) => String(entry || "").trim());
+  const headers = parseDelimitedLineClient(lines[0], delimiter).map((entry) =>
+    String(entry || "").trim()
+  );
   const rows = lines.slice(1).map((line) => {
     const values = parseDelimitedLineClient(line, delimiter);
     const row = {};
@@ -305,23 +298,23 @@ function normalizeResources(resources) {
     priceWeekday:
       typeof resource.price_weekday_cents === "number"
         ? Math.round(resource.price_weekday_cents / 100)
-        : (typeof resource.price_cents === "number"
-            ? Math.round(resource.price_cents / 100)
-            : (resource.price ?? 0)),
+        : typeof resource.price_cents === "number"
+          ? Math.round(resource.price_cents / 100)
+          : (resource.price ?? 0),
     priceWeekend:
       typeof resource.price_weekend_cents === "number"
         ? Math.round(resource.price_weekend_cents / 100)
-        : (typeof resource.price_weekday_cents === "number"
-            ? Math.round(resource.price_weekday_cents / 100)
-            : (typeof resource.price_cents === "number"
-                ? Math.round(resource.price_cents / 100)
-                : (resource.price ?? 0))),
+        : typeof resource.price_weekday_cents === "number"
+          ? Math.round(resource.price_weekday_cents / 100)
+          : typeof resource.price_cents === "number"
+            ? Math.round(resource.price_cents / 100)
+            : (resource.price ?? 0),
     price:
       typeof resource.price_weekday_cents === "number"
         ? Math.round(resource.price_weekday_cents / 100)
-        : (typeof resource.price_cents === "number"
-            ? Math.round(resource.price_cents / 100)
-            : (resource.price ?? 0)),
+        : typeof resource.price_cents === "number"
+          ? Math.round(resource.price_cents / 100)
+          : (resource.price ?? 0),
     isBillable: resource.is_billable ?? resource.isBillable ?? false,
     maxBookings:
       typeof resource.max_bookings === "number"
@@ -700,7 +693,10 @@ export function createBookingApp(options = {}) {
       storeTenantId(nextTenantId, runtimeWindow.localStorage);
       const api = await getApiClient();
       api.setTenantId?.(nextTenantId);
-      if (runtimeWindow.history?.replaceState && runtimeWindow.location?.pathname !== `/${nextTenantId}`) {
+      if (
+        runtimeWindow.history?.replaceState &&
+        runtimeWindow.location?.pathname !== `/${nextTenantId}`
+      ) {
         runtimeWindow.history.replaceState({}, "", `/${nextTenantId}`);
       }
     },
@@ -714,7 +710,9 @@ export function createBookingApp(options = {}) {
       this.registrationCaptchaProvider = "turnstile";
       this.registrationCaptchaSiteKey = TURNSTILE_SITE_KEY;
       this.registrationCaptchaEnabled = Boolean(TURNSTILE_SITE_KEY);
-      this.registrationCaptchaConfigReason = this.registrationCaptchaEnabled ? "ok" : "missing_site_key";
+      this.registrationCaptchaConfigReason = this.registrationCaptchaEnabled
+        ? "ok"
+        : "missing_site_key";
       this.registrationCaptchaConfigSource = this.registrationCaptchaEnabled
         ? "vite_env_fallback"
         : "vite_env_missing";
@@ -752,17 +750,26 @@ export function createBookingApp(options = {}) {
           this.registrationCaptchaConfigReason = String(config?.reason || "").trim();
           this.registrationCaptchaManualFallback = Boolean(config?.manual_fallback_allowed);
           this.registrationCaptchaConfigSource = "backend_api";
-          this.registrationCaptchaConfigEndpoint = String(diagnostics?.endpoint || "").trim() || `/api${CAPTCHA_CONFIG_PATH}`;
-          this.registrationCaptchaConfigResponseUrl = String(diagnostics?.response_url || "").trim();
+          this.registrationCaptchaConfigEndpoint =
+            String(diagnostics?.endpoint || "").trim() || `/api${CAPTCHA_CONFIG_PATH}`;
+          this.registrationCaptchaConfigResponseUrl = String(
+            diagnostics?.response_url || ""
+          ).trim();
           this.registrationCaptchaConfigHttpStatus = Number.isFinite(diagnostics?.status)
             ? diagnostics.status
             : null;
-          this.registrationCaptchaProxyWorkerBase = String(diagnostics?.proxy_worker_base || "").trim();
-          this.registrationCaptchaProxyUpstreamUrl = String(diagnostics?.proxy_upstream_url || "").trim();
+          this.registrationCaptchaProxyWorkerBase = String(
+            diagnostics?.proxy_worker_base || ""
+          ).trim();
+          this.registrationCaptchaProxyUpstreamUrl = String(
+            diagnostics?.proxy_upstream_url || ""
+          ).trim();
           this.registrationCaptchaProxyUpstreamStatus = String(
             diagnostics?.proxy_upstream_status || ""
           ).trim();
-          this.registrationCaptchaProxyPagesBranch = String(diagnostics?.proxy_pages_branch || "").trim();
+          this.registrationCaptchaProxyPagesBranch = String(
+            diagnostics?.proxy_pages_branch || ""
+          ).trim();
           // #region agent log
           emitCaptchaDebugLog({
             hypothesisId: "H1",
@@ -826,16 +833,24 @@ export function createBookingApp(options = {}) {
         const diagnostics = error?.diagnostics ?? {};
         this.registrationCaptchaConfigReason = "config_unreachable";
         this.registrationCaptchaConfigSource = "backend_api_error";
-        this.registrationCaptchaConfigHttpStatus = Number.isFinite(error?.status) ? error.status : null;
+        this.registrationCaptchaConfigHttpStatus = Number.isFinite(error?.status)
+          ? error.status
+          : null;
         this.registrationCaptchaConfigEndpoint =
           String(diagnostics?.endpoint || "").trim() || this.registrationCaptchaConfigEndpoint;
         this.registrationCaptchaConfigResponseUrl = String(diagnostics?.response_url || "").trim();
-        this.registrationCaptchaProxyWorkerBase = String(diagnostics?.proxy_worker_base || "").trim();
-        this.registrationCaptchaProxyUpstreamUrl = String(diagnostics?.proxy_upstream_url || "").trim();
+        this.registrationCaptchaProxyWorkerBase = String(
+          diagnostics?.proxy_worker_base || ""
+        ).trim();
+        this.registrationCaptchaProxyUpstreamUrl = String(
+          diagnostics?.proxy_upstream_url || ""
+        ).trim();
         this.registrationCaptchaProxyUpstreamStatus = String(
           diagnostics?.proxy_upstream_status || ""
         ).trim();
-        this.registrationCaptchaProxyPagesBranch = String(diagnostics?.proxy_pages_branch || "").trim();
+        this.registrationCaptchaProxyPagesBranch = String(
+          diagnostics?.proxy_pages_branch || ""
+        ).trim();
         console.warn("[captcha] Kunde inte läsa captcha-konfig från backend.");
         // #region agent log
         emitCaptchaDebugLog({
@@ -1065,7 +1080,11 @@ export function createBookingApp(options = {}) {
         this.registrationErrorMessage = "Verifiera captcha innan registrering.";
         return;
       }
-      if (!this.registrationCaptchaEnabled && this.registrationCaptchaManualFallback && !captchaToken) {
+      if (
+        !this.registrationCaptchaEnabled &&
+        this.registrationCaptchaManualFallback &&
+        !captchaToken
+      ) {
         this.registrationErrorMessage = "Ange captcha-token (dev-fallback) innan registrering.";
         return;
       }
@@ -1102,7 +1121,8 @@ export function createBookingApp(options = {}) {
         });
         this.registrationSuccessMessage =
           "Registrering skickad. Du får administratörsinloggning via e-post när uppsättningen är klar.";
-        this.tenantOptions = typeof api.listTenants === "function" ? await api.listTenants() : this.tenantOptions;
+        this.tenantOptions =
+          typeof api.listTenants === "function" ? await api.listTenants() : this.tenantOptions;
         this.landingTenantSelection = subdomain;
         if (result?.development_preview?.apartment_id && result?.development_preview?.password) {
           if (result?.status === "email_skipped") {
@@ -1189,7 +1209,8 @@ export function createBookingApp(options = {}) {
       }
       if (detailCode === "email_not_configured") {
         return {
-          message: "Registreringen är tillfälligt otillgänglig: e-postleverans är inte konfigurerad.",
+          message:
+            "Registreringen är tillfälligt otillgänglig: e-postleverans är inte konfigurerad.",
           resetToStepOne: false
         };
       }
@@ -1717,31 +1738,41 @@ export function createBookingApp(options = {}) {
       this.adminAxemaHeaders = headers;
       const pickHeader = (current, candidates = []) => {
         if (headers.includes(current)) return current;
-        const normalizedCandidates = candidates.map((candidate) => normalizeCsvFieldName(candidate));
+        const normalizedCandidates = candidates.map((candidate) =>
+          normalizeCsvFieldName(candidate)
+        );
         const normalizedCandidatesLoose = candidates.map((candidate) =>
           normalizeCsvFieldNameLoose(candidate)
         );
         const match = headers.find((header) => {
           const normalizedHeader = normalizeCsvFieldName(header);
           const normalizedHeaderLoose = normalizeCsvFieldNameLoose(header);
-          return normalizedCandidates.some(
-            (candidate) => normalizedHeader.includes(candidate) || candidate.includes(normalizedHeader)
-          ) || normalizedCandidatesLoose.some(
-            (candidate) =>
-              normalizedHeaderLoose.includes(candidate) || candidate.includes(normalizedHeaderLoose)
+          return (
+            normalizedCandidates.some(
+              (candidate) =>
+                normalizedHeader.includes(candidate) || candidate.includes(normalizedHeader)
+            ) ||
+            normalizedCandidatesLoose.some(
+              (candidate) =>
+                normalizedHeaderLoose.includes(candidate) ||
+                candidate.includes(normalizedHeaderLoose)
+            )
           );
         });
         return match || current;
       };
-      this.adminAxemaRules.apartment_source_field = pickHeader(this.adminAxemaRules.apartment_source_field, [
-        "OrgGrupp",
-        "Placering"
+      this.adminAxemaRules.apartment_source_field = pickHeader(
+        this.adminAxemaRules.apartment_source_field,
+        ["OrgGrupp", "Placering"]
+      );
+      this.adminAxemaRules.uid_field = pickHeader(this.adminAxemaRules.uid_field, [
+        "Identitetsid",
+        "UID"
       ]);
-      this.adminAxemaRules.uid_field = pickHeader(this.adminAxemaRules.uid_field, ["Identitetsid", "UID"]);
-      this.adminAxemaRules.access_group_field = pickHeader(this.adminAxemaRules.access_group_field, [
-        "Behörighetsgrupp",
-        "AccessGroup"
-      ]);
+      this.adminAxemaRules.access_group_field = pickHeader(
+        this.adminAxemaRules.access_group_field,
+        ["Behörighetsgrupp", "AccessGroup"]
+      );
       this.adminAxemaRules.status_field = pickHeader(this.adminAxemaRules.status_field, [
         "Identitetsstatus",
         "Status"
@@ -1750,13 +1781,12 @@ export function createBookingApp(options = {}) {
       const accessField = this.adminAxemaRules.access_group_field;
       const availableGroups = [
         ...new Set(
-          rows
-            .flatMap((row) =>
-              String(row?.[accessField] || "")
-                .split("|")
-                .map((entry) => entry.trim())
-                .filter(Boolean)
-            )
+          rows.flatMap((row) =>
+            String(row?.[accessField] || "")
+              .split("|")
+              .map((entry) => entry.trim())
+              .filter(Boolean)
+          )
         )
       ].sort((a, b) => a.localeCompare(b, "sv-SE"));
       this.adminAxemaAvailableAccessGroups = availableGroups;
@@ -1812,7 +1842,9 @@ export function createBookingApp(options = {}) {
       }
       if (row.ignored_reason) return "Ignorera";
       const uid = String(row.uid || "");
-      const newUids = new Set((this.adminAxemaDiff?.new_tags || []).map((item) => String(item.uid || "")));
+      const newUids = new Set(
+        (this.adminAxemaDiff?.new_tags || []).map((item) => String(item.uid || ""))
+      );
       const changedUids = new Set(
         (this.adminAxemaDiff?.changed_tags || []).map((item) => String(item.uid || ""))
       );
@@ -1820,13 +1852,15 @@ export function createBookingApp(options = {}) {
         (this.adminAxemaDiff?.unchanged_tags || []).map((item) => String(item.uid || ""))
       );
       if (newUids.has(uid)) return this.adminAxemaActionAddNew ? "Lägg till" : "Ignorera";
-      if (changedUids.has(uid)) return this.adminAxemaActionUpdateExisting ? "Uppdatera" : "Ignorera";
+      if (changedUids.has(uid))
+        return this.adminAxemaActionUpdateExisting ? "Uppdatera" : "Ignorera";
       if (unchangedUids.has(uid)) return "Ingen ändring";
       return "Ingen ändring";
     },
 
     getAxemaActionPillClass(actionLabel) {
-      if (actionLabel === "Lägg till") return "bg-emerald-100 text-emerald-800 border border-emerald-200";
+      if (actionLabel === "Lägg till")
+        return "bg-emerald-100 text-emerald-800 border border-emerald-200";
       if (actionLabel === "Radera") return "bg-rose-100 text-rose-800 border border-rose-200";
       if (actionLabel === "Uppdatera") return "bg-amber-100 text-amber-800 border border-amber-200";
       return "bg-slate-100 text-slate-700 border border-slate-200";
@@ -1960,8 +1994,12 @@ export function createBookingApp(options = {}) {
     getExpectedAxemaImportOperations() {
       const summary = this.adminAxemaDiff?.summary || {};
       const addCount = this.adminAxemaActionAddNew ? Number(summary.new_count || 0) : 0;
-      const updateCount = this.adminAxemaActionUpdateExisting ? Number(summary.changed_count || 0) : 0;
-      const removeCount = this.adminAxemaActionRemoveMissing ? Number(summary.removed_count || 0) : 0;
+      const updateCount = this.adminAxemaActionUpdateExisting
+        ? Number(summary.changed_count || 0)
+        : 0;
+      const removeCount = this.adminAxemaActionRemoveMissing
+        ? Number(summary.removed_count || 0)
+        : 0;
       return addCount + updateCount + removeCount;
     },
 
@@ -2098,7 +2136,9 @@ export function createBookingApp(options = {}) {
         this.adminAxemaImportProgress = {
           active: false,
           importId,
-          processed: Number(result?.progress?.processed ?? this.adminAxemaImportProgress.total ?? 0),
+          processed: Number(
+            result?.progress?.processed ?? this.adminAxemaImportProgress.total ?? 0
+          ),
           total: Number(result?.progress?.total ?? this.adminAxemaImportProgress.total ?? 0),
           done: true,
           phase: "done"
@@ -2164,8 +2204,12 @@ export function createBookingApp(options = {}) {
         max_bookings: Number(resource.max_bookings ?? 2),
         price_weekday: Number(resource.price_weekday_cents ?? resource.price_cents ?? 0) / 100,
         price_weekend:
-          Number(resource.price_weekend_cents ?? resource.price_weekday_cents ?? resource.price_cents ?? 0) /
-          100,
+          Number(
+            resource.price_weekend_cents ??
+              resource.price_weekday_cents ??
+              resource.price_cents ??
+              0
+          ) / 100,
         is_billable: Boolean(resource.is_billable),
         is_active: Boolean(resource.is_active ?? true),
         allow_houses: splitRuleListValues(resource.allow_houses),
@@ -2184,8 +2228,8 @@ export function createBookingApp(options = {}) {
       this.adminResourceHouseOptions = [...new Set(this.adminResourceHouseOptions)].sort((a, b) =>
         String(a).localeCompare(String(b), "sv-SE")
       );
-      this.adminResourceApartmentOptions = [...new Set(this.adminResourceApartmentOptions)].sort((a, b) =>
-        String(a).localeCompare(String(b), "sv-SE")
+      this.adminResourceApartmentOptions = [...new Set(this.adminResourceApartmentOptions)].sort(
+        (a, b) => String(a).localeCompare(String(b), "sv-SE")
       );
     },
 
@@ -2560,7 +2604,8 @@ export function createBookingApp(options = {}) {
       const weekdayPrice = Number(resource.priceWeekday ?? resource.price ?? 0);
       const weekendPrice = Number(resource.priceWeekend ?? weekdayPrice);
       const hasBillableFlag =
-        resource?.isBillable ?? (weekdayPrice > 0 || weekendPrice > 0 || Number(resource.price ?? 0) > 0);
+        resource?.isBillable ??
+        (weekdayPrice > 0 || weekendPrice > 0 || Number(resource.price ?? 0) > 0);
       if (!hasBillableFlag) return 0;
       if (!dateString) {
         return weekdayPrice > 0 ? weekdayPrice : 0;
@@ -2577,7 +2622,8 @@ export function createBookingApp(options = {}) {
       const weekdayPrice = Number(resource.priceWeekday ?? resource.price ?? 0);
       const weekendPrice = Number(resource.priceWeekend ?? weekdayPrice);
       const hasBillableFlag =
-        resource?.isBillable ?? (weekdayPrice > 0 || weekendPrice > 0 || Number(resource.price ?? 0) > 0);
+        resource?.isBillable ??
+        (weekdayPrice > 0 || weekendPrice > 0 || Number(resource.price ?? 0) > 0);
       if (!hasBillableFlag) return "";
       if (weekdayPrice <= 0 && weekendPrice <= 0) return "";
       if (weekdayPrice === weekendPrice) {

@@ -44,7 +44,11 @@ export async function logBackendStatus() {
   }
 }
 
-async function request(path, options = {}, { tenantRequired = true, tenantId: tenantOverride } = {}) {
+async function request(
+  path,
+  options = {},
+  { tenantRequired = true, tenantId: tenantOverride } = {}
+) {
   logBackendStatus();
   const tenantId = normalizeTenantId(tenantOverride || getTenantId());
   if (tenantRequired && !tenantId) {
@@ -78,10 +82,9 @@ async function request(path, options = {}, { tenantRequired = true, tenantId: te
   if (response.status === 204) return null;
   const contentType = response.headers?.get?.("content-type") || "";
   if (contentType && !contentType.includes("application/json")) {
-    const preview = typeof response.text === "function" ? (await response.text()).slice(0, 120) : "";
-    const error = new Error(
-      `unexpected_response_format${preview ? `: ${preview}` : ""}`
-    );
+    const preview =
+      typeof response.text === "function" ? (await response.text()).slice(0, 120) : "";
+    const error = new Error(`unexpected_response_format${preview ? `: ${preview}` : ""}`);
     error.status = response.status;
     throw error;
   }
@@ -244,8 +247,17 @@ export async function createTenant(payload) {
 
 export async function checkSubdomainAvailability(subdomain) {
   const params = new URLSearchParams();
-  params.set("subdomain", String(subdomain || "").trim().toLowerCase());
-  return request(`/public/subdomain-availability?${params.toString()}`, {}, { tenantRequired: false });
+  params.set(
+    "subdomain",
+    String(subdomain || "")
+      .trim()
+      .toLowerCase()
+  );
+  return request(
+    `/public/subdomain-availability?${params.toString()}`,
+    {},
+    { tenantRequired: false }
+  );
 }
 
 export async function registerTenant(payload) {

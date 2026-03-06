@@ -28,7 +28,18 @@ This is a BRF Laundry Booking System on Cloudflare stack:
 - **Turnstile setup**: set both `TURNSTILE_SITE_KEY` (public) and `TURNSTILE_SECRET` (server verification) in Cloudflare Worker vars/secrets for BRF registration captcha.
 - **Captcha fallback policy**: frontend blocks registration when captcha is not configured; only enable manual token fallback explicitly for local dev (`VITE_CAPTCHA_MANUAL_FALLBACK=true` or `DEV_CAPTCHA_BYPASS=true`).
 - **Temporary no-email mode**: if `RESEND_API_KEY`/`EMAIL_FROM` are missing, registration still succeeds, skips email delivery, and uses temporary admin password `abc123`.
-- **Local D1 migrations**: run `npm run d1:migrate:local` in `cloudflare/worker/` before local API tests.
-- **Frontend unit tests**: run `npx vitest run --dir tests` in `frontend/`. The default `npm run test` / `npx vitest run` will also pick up Playwright spec files which causes an error; use `--dir tests` to scope to unit tests only.
-- **Frontend build**: `npm run build` in `frontend/`.
-- **Playwright E2E tests**: `npm run test:ui` in `frontend/`. Requires `npx playwright install` first. The Playwright config sets `VITE_USE_MOCKS=true` so no backend is needed.
+- **Local D1 migrations**: run `npm run d1:migrate:local` in `cloudflare/worker/` before starting the worker or running local API tests. Migrations are idempotent.
+- **Local dev quick start**: 1) `cd cloudflare/worker && npm run d1:migrate:local && npm run dev` (Worker at :8787), 2) `cd frontend && npm run dev` (Vite at :5173, proxies `/api` to :8787).
+- **Create test tenant locally**: `curl -X POST http://127.0.0.1:8787/api/public/register -H 'Content-Type: application/json' -d '{"subdomain":"test-brf","association_name":"Test","email":"x@x.se","organization_number":"0000000000","captcha_token":"dev-ok"}'`. Then open `http://localhost:5173/test-brf` and log in with `admin` / `abc123`.
+- **Prettier formatting**: existing code on main may have formatting drift; run `npm run format` in `frontend/` before `format:check` if you see failures not caused by your changes.
+
+### Lint, format & test
+
+| Scope | Command | Notes |
+|---|---|---|
+| Frontend lint | `npm run lint` (in `frontend/`) | ESLint flat config |
+| Frontend format | `npm run format:check` (in `frontend/`) | Fix: `npm run format` |
+| Frontend unit tests | `npm run test` (in `frontend/`) | Uses `--dir tests` to exclude Playwright specs |
+| Frontend coverage | `npm run test:coverage` (in `frontend/`) | v8 coverage; thresholds at 90% (may fail on current codebase) |
+| Frontend build | `npm run build` (in `frontend/`) | |
+| Frontend E2E | `npm run test:ui` (in `frontend/`) | Requires `npx playwright install`. Uses `VITE_USE_MOCKS=true` |
