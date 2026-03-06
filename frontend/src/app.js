@@ -2147,30 +2147,32 @@ export function createBookingApp(options = {}) {
       };
     },
 
-    openEditResourceForm(resource) {
-      this.adminResourceError = "";
-      this.adminResourceMessage = "";
-      this.adminResourceModalOpen = true;
-      this.adminResourceForm = {
-        id: Number(resource.id),
-        name: String(resource.name || ""),
-        booking_type: String(resource.booking_type || "time-slot"),
-        category: String(resource.category || ""),
-        slot_duration_minutes: Number(resource.slot_duration_minutes ?? 60),
-        slot_start_hour: Number(resource.slot_start_hour ?? 6),
-        slot_end_hour: Number(resource.slot_end_hour ?? 22),
-        max_future_days: Number(resource.max_future_days ?? 30),
-        min_future_days: Number(resource.min_future_days ?? 0),
-        max_bookings: Number(resource.max_bookings ?? 2),
-        price_weekday: Number(resource.price_weekday_cents ?? resource.price_cents ?? 0) / 100,
+    createAdminResourceFormFromTemplate(resource, options = {}) {
+      const source = resource || {};
+      const isCopy = Boolean(options.copy);
+      const baseName = String(source.name || "");
+      return {
+        id: isCopy ? null : Number(source.id),
+        name: isCopy && baseName ? `${baseName} (kopia)` : baseName,
+        booking_type: String(source.booking_type || "time-slot"),
+        category: String(source.category || ""),
+        slot_duration_minutes: Number(source.slot_duration_minutes ?? 60),
+        slot_start_hour: Number(source.slot_start_hour ?? 6),
+        slot_end_hour: Number(source.slot_end_hour ?? 22),
+        max_future_days: Number(source.max_future_days ?? 30),
+        min_future_days: Number(source.min_future_days ?? 0),
+        max_bookings: Number(source.max_bookings ?? 2),
+        price_weekday: Number(source.price_weekday_cents ?? source.price_cents ?? 0) / 100,
         price_weekend:
-          Number(resource.price_weekend_cents ?? resource.price_weekday_cents ?? resource.price_cents ?? 0) /
-          100,
-        is_billable: Boolean(resource.is_billable),
-        is_active: Boolean(resource.is_active ?? true),
-        allow_houses: splitRuleListValues(resource.allow_houses),
-        deny_apartment_ids: splitRuleListValues(resource.deny_apartment_ids)
+          Number(source.price_weekend_cents ?? source.price_weekday_cents ?? source.price_cents ?? 0) / 100,
+        is_billable: Boolean(source.is_billable),
+        is_active: Boolean(source.is_active ?? true),
+        allow_houses: splitRuleListValues(source.allow_houses),
+        deny_apartment_ids: splitRuleListValues(source.deny_apartment_ids)
       };
+    },
+
+    syncAdminResourceFormRuleOptions() {
       for (const house of this.adminResourceForm.allow_houses) {
         if (!this.adminResourceHouseOptions.includes(house)) {
           this.adminResourceHouseOptions.push(house);
@@ -2187,6 +2189,22 @@ export function createBookingApp(options = {}) {
       this.adminResourceApartmentOptions = [...new Set(this.adminResourceApartmentOptions)].sort((a, b) =>
         String(a).localeCompare(String(b), "sv-SE")
       );
+    },
+
+    openEditResourceForm(resource) {
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      this.adminResourceModalOpen = true;
+      this.adminResourceForm = this.createAdminResourceFormFromTemplate(resource);
+      this.syncAdminResourceFormRuleOptions();
+    },
+
+    openCopyResourceForm(resource) {
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      this.adminResourceModalOpen = true;
+      this.adminResourceForm = this.createAdminResourceFormFromTemplate(resource, { copy: true });
+      this.syncAdminResourceFormRuleOptions();
     },
 
     closeResourceModal() {
