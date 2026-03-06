@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildTenantUrl, detectTenantId, getTenantIdFromHostname, normalizeTenantId } from "../src/tenant";
+import {
+  buildTenantUrl,
+  detectTenantId,
+  getTenantIdFromHostname,
+  normalizeTenantId
+} from "../src/tenant";
 
 describe("tenant utils", () => {
   it("hämtar tenant från subdomän", () => {

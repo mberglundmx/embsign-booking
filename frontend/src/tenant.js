@@ -115,7 +115,10 @@ export function buildTenantUrl(
     .trim()
     .toLowerCase();
   const protocol = locationObject.protocol || "https:";
-  if (normalizedRootDomain && (currentHost === normalizedRootDomain || currentHost.endsWith(`.${normalizedRootDomain}`))) {
+  if (
+    normalizedRootDomain &&
+    (currentHost === normalizedRootDomain || currentHost.endsWith(`.${normalizedRootDomain}`))
+  ) {
     return `${protocol}//${normalized}.${normalizedRootDomain}/`;
   }
   return `${locationObject.origin || ""}/${normalized}`;
