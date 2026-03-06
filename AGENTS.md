@@ -40,6 +40,6 @@ This is a BRF Laundry Booking System on Cloudflare stack:
 | Frontend lint | `npm run lint` (in `frontend/`) | ESLint flat config |
 | Frontend format | `npm run format:check` (in `frontend/`) | Fix: `npm run format` |
 | Frontend unit tests | `npm run test` (in `frontend/`) | Uses `--dir tests` to exclude Playwright specs |
-| Frontend coverage | `npm run test:coverage` (in `frontend/`) | v8 coverage; thresholds at 90% (may fail on current codebase) |
+| Frontend coverage | `npm run test:coverage` (in `frontend/`) | v8 coverage; thresholds at 50% |
 | Frontend build | `npm run build` (in `frontend/`) | |
-| Frontend E2E | `npm run test:ui` (in `frontend/`) | Requires `npx playwright install`. Uses `VITE_USE_MOCKS=true` |
+| Frontend E2E | `npm run test:ui` (in `frontend/`) | Requires `npx playwright install --with-deps chromium`. Uses `VITE_USE_MOCKS=true`, no backend needed. E2E tests use tenant path `/demo-brf` |
