@@ -355,6 +355,264 @@
             </label>
           </div>
 
+          <div class="card card-compact" x-show="isAdminMode" data-testid="admin-axema-import">
+            <p class="card-title text-base text-amber-900">Importera användare från Axema/Vaka</p>
+            <p class="text-xs text-amber-700">
+              Ladda upp CSV, definiera regex-regler och förhandsgranska diff innan import.
+            </p>
+            <div class="mt-3 grid gap-3 md:grid-cols-2">
+              <label class="flex flex-col gap-1">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">CSV-fil</span>
+                <input class="input" type="file" accept=".csv,text/csv" @change="onAxemaCsvSelected" />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Valda admin-grupper</span>
+                <input
+                  class="input"
+                  type="text"
+                  x-model="adminAxemaGroupsText"
+                  placeholder="t.ex. Full Behörighet, Styrelse"
+                />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Källfält för lägenhet</span>
+                <input class="input" type="text" x-model="adminAxemaRules.apartment_source_field" />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">UID-fält</span>
+                <input class="input" type="text" x-model="adminAxemaRules.uid_field" />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Regex för hus/trappuppgång</span>
+                <input class="input" type="text" x-model="adminAxemaRules.house_regex" />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Regex för lägenhets-ID</span>
+                <input class="input" type="text" x-model="adminAxemaRules.apartment_regex" />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Behörighetsgrupp-fält</span>
+                <input class="input" type="text" x-model="adminAxemaRules.access_group_field" />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Aktiv-statusfält / värde</span>
+                <div class="grid grid-cols-2 gap-2">
+                  <input class="input" type="text" x-model="adminAxemaRules.status_field" />
+                  <input class="input" type="text" x-model="adminAxemaRules.active_status_value" />
+                </div>
+              </label>
+            </div>
+
+            <label class="mt-3 flex flex-col gap-1">
+              <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">CSV-innehåll</span>
+              <textarea
+                class="input min-h-[9rem] py-2"
+                x-model="adminAxemaCsvText"
+                placeholder="Klistra in CSV-rader här om du inte laddar fil."
+              ></textarea>
+            </label>
+
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button class="btn btn-secondary px-4 py-2 text-sm" @click="saveAxemaRules">Spara regler</button>
+              <button class="btn btn-primary px-4 py-2 text-sm" @click="previewAxemaImport" :disabled="adminAxemaLoading">
+                Förhandsgranska
+              </button>
+              <button class="btn px-4 py-2 text-sm" @click="applyAxemaImport" :disabled="adminAxemaLoading">
+                Importera
+              </button>
+            </div>
+
+            <p class="mt-2 text-xs text-slate-500" x-show="adminAxemaCsvFileName">
+              Fil: <span class="font-semibold" x-text="adminAxemaCsvFileName"></span>
+            </p>
+            <p class="mt-2 text-sm text-emerald-700" x-show="adminAxemaMessage" x-text="adminAxemaMessage"></p>
+            <p class="mt-2 text-sm text-rose-700" x-show="adminAxemaError" x-text="adminAxemaError"></p>
+            <p class="mt-2 text-xs text-slate-500" x-show="adminAxemaAvailableAccessGroups.length">
+              Grupper i filen:
+              <span x-text="adminAxemaAvailableAccessGroups.join(', ')"></span>
+            </p>
+
+            <div class="mt-3 rounded-xl border border-slate-200 p-3" x-show="adminAxemaDiff">
+              <p class="text-sm font-semibold text-slate-800">Diff mot databasen</p>
+              <p class="mt-1 text-xs text-slate-600">
+                Nya: <span class="font-semibold" x-text="adminAxemaDiff?.summary?.new_count ?? 0"></span>,
+                Ändrade: <span class="font-semibold" x-text="adminAxemaDiff?.summary?.changed_count ?? 0"></span>,
+                Borttagna: <span class="font-semibold" x-text="adminAxemaDiff?.summary?.removed_count ?? 0"></span>,
+                Oförändrade: <span class="font-semibold" x-text="adminAxemaDiff?.summary?.unchanged_count ?? 0"></span>
+              </p>
+              <div class="mt-2 flex flex-wrap gap-4 text-sm text-slate-700">
+                <label class="inline-flex items-center gap-2">
+                  <input type="checkbox" x-model="adminAxemaActionAddNew" />
+                  <span>Lägg till nya</span>
+                </label>
+                <label class="inline-flex items-center gap-2">
+                  <input type="checkbox" x-model="adminAxemaActionUpdateExisting" />
+                  <span>Uppdatera ändrade</span>
+                </label>
+                <label class="inline-flex items-center gap-2">
+                  <input type="checkbox" x-model="adminAxemaActionRemoveMissing" />
+                  <span>Ta bort saknade</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="mt-3 overflow-x-auto" x-show="adminAxemaPreviewRows.length">
+              <table class="min-w-full border-collapse text-xs">
+                <thead>
+                  <tr class="border-b border-slate-200 text-left text-slate-500">
+                    <th class="px-2 py-1">Rad</th>
+                    <th class="px-2 py-1">UID</th>
+                    <th class="px-2 py-1">Källa</th>
+                    <th class="px-2 py-1">Hus</th>
+                    <th class="px-2 py-1">Lägenhet</th>
+                    <th class="px-2 py-1">Admin</th>
+                    <th class="px-2 py-1">Ignorerad</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in adminAxemaPreviewRows" :key="`${row.line}-${row.uid}`">
+                    <tr class="border-b border-slate-100">
+                      <td class="px-2 py-1" x-text="row.line"></td>
+                      <td class="px-2 py-1 font-mono" x-text="row.uid"></td>
+                      <td class="px-2 py-1" x-text="row.source_value"></td>
+                      <td class="px-2 py-1" x-text="row.house"></td>
+                      <td class="px-2 py-1" x-text="row.apartment_id"></td>
+                      <td class="px-2 py-1" x-text="row.is_admin ? 'Ja' : 'Nej'"></td>
+                      <td class="px-2 py-1 text-rose-700" x-text="row.ignored_reason"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card card-compact" x-show="isAdminMode" data-testid="admin-resources-editor">
+            <div class="flex items-center justify-between gap-2">
+              <p class="card-title text-base text-amber-900">Hantera bokningsobjekt</p>
+              <button class="btn btn-secondary px-3 py-2 text-xs" @click="openCreateResourceForm">
+                Nytt objekt
+              </button>
+            </div>
+            <p class="text-xs text-amber-700">Redigera regler för typ, bokningsfönster, pris och access.</p>
+            <p class="mt-2 text-sm text-emerald-700" x-show="adminResourceMessage" x-text="adminResourceMessage"></p>
+            <p class="mt-2 text-sm text-rose-700" x-show="adminResourceError" x-text="adminResourceError"></p>
+
+            <div class="mt-3 overflow-x-auto">
+              <table class="min-w-full border-collapse text-sm">
+                <thead>
+                  <tr class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <th class="px-2 py-1">Namn</th>
+                    <th class="px-2 py-1">Typ</th>
+                    <th class="px-2 py-1">Fönster</th>
+                    <th class="px-2 py-1">Pris</th>
+                    <th class="px-2 py-1">Aktiv</th>
+                    <th class="px-2 py-1"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="resource in adminResources" :key="resource.id">
+                    <tr class="border-b border-slate-100">
+                      <td class="px-2 py-2 font-medium" x-text="resource.name"></td>
+                      <td class="px-2 py-2" x-text="resource.booking_type"></td>
+                      <td class="px-2 py-2 text-xs">
+                        <span
+                          x-text="`${resource.min_future_days ?? 0}-${resource.max_future_days ?? 0} d, max ${resource.max_bookings ?? 0}`"
+                        ></span>
+                      </td>
+                      <td class="px-2 py-2 text-xs">
+                        <span
+                          x-text="`${Math.round((resource.price_weekday_cents ?? resource.price_cents ?? 0) / 100)} / ${Math.round((resource.price_weekend_cents ?? resource.price_weekday_cents ?? resource.price_cents ?? 0) / 100)} kr`"
+                        ></span>
+                      </td>
+                      <td class="px-2 py-2" x-text="resource.is_active ? 'Ja' : 'Nej'"></td>
+                      <td class="px-2 py-2">
+                        <div class="flex gap-2">
+                          <button class="btn btn-secondary px-2 py-1 text-xs" @click="openEditResourceForm(resource)">
+                            Redigera
+                          </button>
+                          <button class="btn btn-danger px-2 py-1 text-xs" @click="deactivateResource(resource.id)">
+                            Inaktivera
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="mt-3 rounded-xl border border-slate-200 p-3" x-show="adminResourceEditorOpen">
+              <p class="text-sm font-semibold text-slate-800" x-text="adminResourceForm.id ? 'Redigera objekt' : 'Nytt objekt'"></p>
+              <div class="mt-2 grid gap-2 md:grid-cols-2">
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Namn</span>
+                  <input class="input" type="text" x-model="adminResourceForm.name" placeholder="Namn" />
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Kategori</span>
+                  <input class="input" type="text" x-model="adminResourceForm.category" placeholder="Kategori" />
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Typ</span>
+                  <select class="input" x-model="adminResourceForm.booking_type">
+                    <option value="time-slot">time-slot</option>
+                    <option value="full-day">full-day</option>
+                  </select>
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Slot-längd (min)</span>
+                  <input class="input" type="number" min="1" x-model.number="adminResourceForm.slot_duration_minutes" placeholder="Slot-minuter" />
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Starttimme</span>
+                  <input class="input" type="number" min="0" max="23" x-model.number="adminResourceForm.slot_start_hour" placeholder="Starttimme" />
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Sluttimme</span>
+                  <input class="input" type="number" min="1" max="24" x-model.number="adminResourceForm.slot_end_hour" placeholder="Sluttimme" />
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Max dagar framåt</span>
+                  <input class="input" type="number" min="1" x-model.number="adminResourceForm.max_future_days" placeholder="max_future_days" />
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Min dagar framåt</span>
+                  <input class="input" type="number" min="0" x-model.number="adminResourceForm.min_future_days" placeholder="min_future_days" />
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Max bokningar</span>
+                  <input class="input" type="number" min="1" x-model.number="adminResourceForm.max_bookings" placeholder="max_bookings" />
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Pris vardag (kr)</span>
+                  <input class="input" type="number" min="0" step="1" x-model.number="adminResourceForm.price_weekday" placeholder="Pris vardag (kr)" />
+                </label>
+                <label class="flex flex-col gap-1">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Pris helg (kr)</span>
+                  <input class="input" type="number" min="0" step="1" x-model.number="adminResourceForm.price_weekend" placeholder="Pris helg (kr)" />
+                </label>
+                <label class="inline-flex items-center gap-2 text-sm">
+                  <input type="checkbox" x-model="adminResourceForm.is_billable" />
+                  <span>Debiterbar</span>
+                </label>
+                <label class="inline-flex items-center gap-2 text-sm">
+                  <input type="checkbox" x-model="adminResourceForm.is_active" />
+                  <span>Aktiv</span>
+                </label>
+              </div>
+              <textarea class="input mt-2 min-h-[4rem] py-2" x-model="adminResourceForm.allow_houses" placeholder="Allow hus (separera med komma eller ny rad)"></textarea>
+              <textarea class="input mt-2 min-h-[4rem] py-2" x-model="adminResourceForm.deny_apartment_ids" placeholder="Deny lägenhets-ID (separera med komma eller ny rad)"></textarea>
+              <div class="mt-2 flex gap-2">
+                <button class="btn btn-primary px-4 py-2 text-sm" @click="saveResourceForm" :disabled="adminResourceSaving">
+                  Spara objekt
+                </button>
+                <button class="btn btn-secondary px-4 py-2 text-sm" @click="adminResourceEditorOpen = false">
+                  Avbryt
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div
             class="rounded-2xl border border-slate-200 bg-emerald-50 px-6 py-3 text-sm font-medium text-emerald-800"
             x-show="passwordUpdateMessage"

@@ -511,6 +511,50 @@ export function createBookingApp(options = {}) {
       message: "",
       price: 0
     },
+    adminAxemaCsvText: "",
+    adminAxemaCsvFileName: "",
+    adminAxemaRules: {
+      apartment_source_field: "OrgGrupp",
+      house_regex: "(\\d)-LGH.*",
+      apartment_regex: "\\d-LGH\\d\\d\\d\\d\\s*\\/(\\d\\d\\d\\d).*",
+      uid_field: "Identitetsid",
+      access_group_field: "Behörighetsgrupp",
+      status_field: "Identitetsstatus (0=på 1=av)",
+      active_status_value: "0",
+      admin_access_groups: []
+    },
+    adminAxemaAvailableAccessGroups: [],
+    adminAxemaPreviewRows: [],
+    adminAxemaDiff: null,
+    adminAxemaActionAddNew: true,
+    adminAxemaActionUpdateExisting: true,
+    adminAxemaActionRemoveMissing: true,
+    adminAxemaLoading: false,
+    adminAxemaMessage: "",
+    adminAxemaError: "",
+    adminResources: [],
+    adminResourceEditorOpen: false,
+    adminResourceSaving: false,
+    adminResourceError: "",
+    adminResourceMessage: "",
+    adminResourceForm: {
+      id: null,
+      name: "",
+      booking_type: "time-slot",
+      category: "",
+      slot_duration_minutes: 60,
+      slot_start_hour: 6,
+      slot_end_hour: 22,
+      max_future_days: 30,
+      min_future_days: 0,
+      max_bookings: 2,
+      price_weekday: 0,
+      price_weekend: 0,
+      is_billable: false,
+      is_active: true,
+      allow_houses: "",
+      deny_apartment_ids: ""
+    },
     errorTimeoutId: null,
 
     async init() {
@@ -1407,6 +1451,9 @@ export function createBookingApp(options = {}) {
         await this.loadResources();
         await this.loadBookings();
         await this.refreshSlots();
+        if (this.isAdmin) {
+          await this.initializeAdminConsole();
+        }
       } catch (error) {
         if (error?.status === 401) {
           this.showError("Brickan är inte registrerad eller är inaktiv.");
@@ -1442,6 +1489,9 @@ export function createBookingApp(options = {}) {
         await this.loadResources();
         await this.loadBookings();
         await this.refreshSlots();
+        if (this.isAdmin) {
+          await this.initializeAdminConsole();
+        }
       } catch (error) {
         if (error?.status === 401) {
           this.showError(
@@ -1512,6 +1562,318 @@ export function createBookingApp(options = {}) {
       }
     },
 
+    resetAdminConsoleState() {
+      this.adminAxemaCsvText = "";
+      this.adminAxemaCsvFileName = "";
+      this.adminAxemaAvailableAccessGroups = [];
+      this.adminAxemaPreviewRows = [];
+      this.adminAxemaDiff = null;
+      this.adminAxemaActionAddNew = true;
+      this.adminAxemaActionUpdateExisting = true;
+      this.adminAxemaActionRemoveMissing = true;
+      this.adminAxemaLoading = false;
+      this.adminAxemaMessage = "";
+      this.adminAxemaError = "";
+      this.adminResources = [];
+      this.adminResourceEditorOpen = false;
+      this.adminResourceSaving = false;
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      this.adminResourceForm = {
+        id: null,
+        name: "",
+        booking_type: "time-slot",
+        category: "",
+        slot_duration_minutes: 60,
+        slot_start_hour: 6,
+        slot_end_hour: 22,
+        max_future_days: 30,
+        min_future_days: 0,
+        max_bookings: 2,
+        price_weekday: 0,
+        price_weekend: 0,
+        is_billable: false,
+        is_active: true,
+        allow_houses: "",
+        deny_apartment_ids: ""
+      };
+    },
+
+    get adminAxemaGroupsText() {
+      return (this.adminAxemaRules.admin_access_groups ?? []).join(", ");
+    },
+
+    set adminAxemaGroupsText(value) {
+      this.adminAxemaRules.admin_access_groups = String(value || "")
+        .split(/[\n,;|]/)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    },
+
+    async initializeAdminConsole() {
+      this.adminAxemaError = "";
+      this.adminResourceError = "";
+      try {
+        const api = await getApiClient();
+        if (typeof api.getAxemaImportRules === "function") {
+          const rules = await api.getAxemaImportRules();
+          this.adminAxemaRules = {
+            ...this.adminAxemaRules,
+            ...(rules || {}),
+            admin_access_groups: Array.isArray(rules?.admin_access_groups)
+              ? [...rules.admin_access_groups]
+              : []
+          };
+        }
+        if (typeof api.getAdminResources === "function") {
+          this.adminResources = await api.getAdminResources(true);
+        }
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        this.adminAxemaError = "Kunde inte ladda admininställningar.";
+      }
+    },
+
+    async onAxemaCsvSelected(event) {
+      this.adminAxemaError = "";
+      const file = event?.target?.files?.[0];
+      if (!file) return;
+      this.adminAxemaCsvFileName = file.name || "";
+      const text = await file.text();
+      this.adminAxemaCsvText = String(text || "");
+    },
+
+    async saveAxemaRules() {
+      this.adminAxemaError = "";
+      this.adminAxemaMessage = "";
+      try {
+        const api = await getApiClient();
+        if (typeof api.saveAxemaImportRules !== "function") {
+          this.adminAxemaMessage = "Regelsparning stöds inte i denna miljö.";
+          return;
+        }
+        const response = await api.saveAxemaImportRules(this.adminAxemaRules);
+        if (response?.rules) {
+          this.adminAxemaRules = {
+            ...this.adminAxemaRules,
+            ...response.rules,
+            admin_access_groups: Array.isArray(response.rules.admin_access_groups)
+              ? [...response.rules.admin_access_groups]
+              : []
+          };
+        }
+        this.adminAxemaMessage = "Importregler sparade.";
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        this.adminAxemaError = "Kunde inte spara importregler.";
+      }
+    },
+
+    async previewAxemaImport() {
+      this.adminAxemaError = "";
+      this.adminAxemaMessage = "";
+      const csvText = String(this.adminAxemaCsvText || "").trim();
+      if (!csvText) {
+        this.adminAxemaError = "Ladda upp eller klistra in CSV först.";
+        return;
+      }
+      this.adminAxemaLoading = true;
+      try {
+        const api = await getApiClient();
+        if (typeof api.previewAxemaImport !== "function") {
+          this.adminAxemaError = "Preview stöds inte i denna miljö.";
+          return;
+        }
+        const result = await api.previewAxemaImport({
+          csv_text: csvText,
+          rules: this.adminAxemaRules
+        });
+        this.adminAxemaPreviewRows = result?.parsed_rows ?? [];
+        this.adminAxemaAvailableAccessGroups = result?.available_access_groups ?? [];
+        this.adminAxemaDiff = result?.diff ?? null;
+        if (result?.rules) {
+          this.adminAxemaRules = {
+            ...this.adminAxemaRules,
+            ...result.rules,
+            admin_access_groups: Array.isArray(result.rules.admin_access_groups)
+              ? [...result.rules.admin_access_groups]
+              : []
+          };
+        }
+        this.adminAxemaMessage = "Preview klar. Granska diffen innan du importerar.";
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        const errorDetail = String(error?.message || "");
+        if (errorDetail.startsWith("invalid_regex:")) {
+          this.adminAxemaError = `Ogiltigt regex: ${errorDetail.replace("invalid_regex:", "")}`;
+        } else {
+          this.adminAxemaError = "Kunde inte skapa import-preview.";
+        }
+      } finally {
+        this.adminAxemaLoading = false;
+      }
+    },
+
+    async applyAxemaImport() {
+      this.adminAxemaError = "";
+      this.adminAxemaMessage = "";
+      const csvText = String(this.adminAxemaCsvText || "").trim();
+      if (!csvText) {
+        this.adminAxemaError = "Ladda upp eller klistra in CSV först.";
+        return;
+      }
+      this.adminAxemaLoading = true;
+      try {
+        const api = await getApiClient();
+        if (typeof api.applyAxemaImport !== "function") {
+          this.adminAxemaError = "Import stöds inte i denna miljö.";
+          return;
+        }
+        const result = await api.applyAxemaImport({
+          csv_text: csvText,
+          rules: this.adminAxemaRules,
+          actions: {
+            add_new: this.adminAxemaActionAddNew,
+            update_existing: this.adminAxemaActionUpdateExisting,
+            remove_missing: this.adminAxemaActionRemoveMissing
+          }
+        });
+        this.adminAxemaMessage = `Import klar. Nya: ${result?.applied?.added ?? 0}, uppdaterade: ${result?.applied?.updated ?? 0}, borttagna: ${result?.applied?.removed ?? 0}.`;
+        await this.previewAxemaImport();
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        this.adminAxemaError = "Kunde inte utföra import.";
+      } finally {
+        this.adminAxemaLoading = false;
+      }
+    },
+
+    openCreateResourceForm() {
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      this.adminResourceEditorOpen = true;
+      this.adminResourceForm = {
+        id: null,
+        name: "",
+        booking_type: "time-slot",
+        category: "",
+        slot_duration_minutes: 60,
+        slot_start_hour: 6,
+        slot_end_hour: 22,
+        max_future_days: 30,
+        min_future_days: 0,
+        max_bookings: 2,
+        price_weekday: 0,
+        price_weekend: 0,
+        is_billable: false,
+        is_active: true,
+        allow_houses: "",
+        deny_apartment_ids: ""
+      };
+    },
+
+    openEditResourceForm(resource) {
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      this.adminResourceEditorOpen = true;
+      this.adminResourceForm = {
+        id: Number(resource.id),
+        name: String(resource.name || ""),
+        booking_type: String(resource.booking_type || "time-slot"),
+        category: String(resource.category || ""),
+        slot_duration_minutes: Number(resource.slot_duration_minutes ?? 60),
+        slot_start_hour: Number(resource.slot_start_hour ?? 6),
+        slot_end_hour: Number(resource.slot_end_hour ?? 22),
+        max_future_days: Number(resource.max_future_days ?? 30),
+        min_future_days: Number(resource.min_future_days ?? 0),
+        max_bookings: Number(resource.max_bookings ?? 2),
+        price_weekday: Number(resource.price_weekday_cents ?? resource.price_cents ?? 0) / 100,
+        price_weekend:
+          Number(resource.price_weekend_cents ?? resource.price_weekday_cents ?? resource.price_cents ?? 0) /
+          100,
+        is_billable: Boolean(resource.is_billable),
+        is_active: Boolean(resource.is_active ?? true),
+        allow_houses: String(resource.allow_houses || ""),
+        deny_apartment_ids: String(resource.deny_apartment_ids || "")
+      };
+    },
+
+    async saveResourceForm() {
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      if (!String(this.adminResourceForm.name || "").trim()) {
+        this.adminResourceError = "Namn krävs.";
+        return;
+      }
+      this.adminResourceSaving = true;
+      try {
+        const api = await getApiClient();
+        const payload = {
+          name: this.adminResourceForm.name,
+          booking_type: this.adminResourceForm.booking_type,
+          category: this.adminResourceForm.category,
+          slot_duration_minutes: Number(this.adminResourceForm.slot_duration_minutes),
+          slot_start_hour: Number(this.adminResourceForm.slot_start_hour),
+          slot_end_hour: Number(this.adminResourceForm.slot_end_hour),
+          max_future_days: Number(this.adminResourceForm.max_future_days),
+          min_future_days: Number(this.adminResourceForm.min_future_days),
+          max_bookings: Number(this.adminResourceForm.max_bookings),
+          price_weekday: Number(this.adminResourceForm.price_weekday),
+          price_weekend: Number(this.adminResourceForm.price_weekend),
+          is_billable: Boolean(this.adminResourceForm.is_billable),
+          is_active: Boolean(this.adminResourceForm.is_active),
+          allow_houses: this.adminResourceForm.allow_houses,
+          deny_apartment_ids: this.adminResourceForm.deny_apartment_ids
+        };
+        if (this.adminResourceForm.id) {
+          await api.updateAdminResource(this.adminResourceForm.id, payload);
+          this.adminResourceMessage = "Bokningsobjekt uppdaterat.";
+        } else {
+          await api.createAdminResource(payload);
+          this.adminResourceMessage = "Bokningsobjekt skapat.";
+        }
+        if (typeof api.getAdminResources === "function") {
+          this.adminResources = await api.getAdminResources(true);
+        }
+        await this.loadResources();
+        this.adminResourceEditorOpen = false;
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        this.adminResourceError = "Kunde inte spara bokningsobjekt.";
+      } finally {
+        this.adminResourceSaving = false;
+      }
+    },
+
+    async deactivateResource(resourceId) {
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      try {
+        const api = await getApiClient();
+        await api.deleteAdminResource(resourceId);
+        if (typeof api.getAdminResources === "function") {
+          this.adminResources = await api.getAdminResources(true);
+        }
+        await this.loadResources();
+        this.adminResourceMessage = "Bokningsobjekt markerat som inaktivt.";
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        this.adminResourceError = "Kunde inte inaktivera bokningsobjekt.";
+      }
+    },
+
     logout() {
       this.isAuthenticated = false;
       this.authenticatedStep = "setup";
@@ -1535,6 +1897,7 @@ export function createBookingApp(options = {}) {
       this.selectedResourceId = null;
       this.bookings = [];
       this.resetAvailabilityData();
+      this.resetAdminConsoleState();
     },
 
     async loadBookings() {

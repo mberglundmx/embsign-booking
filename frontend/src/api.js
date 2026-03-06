@@ -270,3 +270,59 @@ export async function updateTenantConfig(configs) {
     body: JSON.stringify({ configs })
   });
 }
+
+export async function getAxemaImportRules() {
+  const data = await request("/admin/axema/rules");
+  return data.rules ?? {};
+}
+
+export async function saveAxemaImportRules(rules) {
+  return request("/admin/axema/rules", {
+    method: "PUT",
+    body: JSON.stringify({ rules })
+  });
+}
+
+export async function previewAxemaImport(payload) {
+  return request("/admin/axema/preview", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function applyAxemaImport(payload) {
+  return request("/admin/axema/apply", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getAdminResources(includeInactive = true) {
+  const params = new URLSearchParams();
+  if (includeInactive) {
+    params.set("include_inactive", "1");
+  }
+  const query = params.toString();
+  const data = await request(`/admin/resources${query ? `?${query}` : ""}`);
+  return data.resources ?? [];
+}
+
+export async function createAdminResource(payload) {
+  return request("/admin/resources", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateAdminResource(resourceId, payload) {
+  return request(`/admin/resources/${resourceId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteAdminResource(resourceId) {
+  return request(`/admin/resources/${resourceId}`, {
+    method: "DELETE"
+  });
+}

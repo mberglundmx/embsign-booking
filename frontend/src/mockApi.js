@@ -52,6 +52,29 @@ let tenants = [{ id: "demo-brf", name: "Demo BRF" }];
 let tenantAdmins = {
   "demo-brf": { apartment_id: "admin", password: "admin" }
 };
+const defaultAxemaRules = {
+  apartment_source_field: "OrgGrupp",
+  house_regex: "(\\d)-LGH.*",
+  apartment_regex: "\\d-LGH\\d\\d\\d\\d\\s*\\/(\\d\\d\\d\\d).*",
+  uid_field: "Identitetsid",
+  access_group_field: "Behörighetsgrupp",
+  status_field: "Identitetsstatus (0=på 1=av)",
+  active_status_value: "0",
+  admin_access_groups: ["Full Behörighet"]
+};
+let axemaRules = structuredClone(defaultAxemaRules);
+let rfidTags = [
+  {
+    uid: "00000003127178380",
+    apartment_id: "1-1001",
+    house: "1",
+    lgh_internal: "1001",
+    skv_lgh: "1001",
+    access_groups: "Boende",
+    is_admin: 0,
+    is_active: 1
+  }
+];
 
 function getDateString(date) {
   return toLocalDateString(date);
@@ -154,6 +177,19 @@ export function resetMockState() {
   tenantAdmins = {
     "demo-brf": { apartment_id: "admin", password: "admin" }
   };
+  axemaRules = structuredClone(defaultAxemaRules);
+  rfidTags = [
+    {
+      uid: "00000003127178380",
+      apartment_id: "1-1001",
+      house: "1",
+      lgh_internal: "1001",
+      skv_lgh: "1001",
+      access_groups: "Boende",
+      is_admin: 0,
+      is_active: 1
+    }
+  ];
   const day = "2030-01-15";
   const { start, end } = buildHourlySlots(day)[1];
   bookings = [
@@ -519,4 +555,352 @@ export function addDays(date, days) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function normalizeList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+  }
+  return String(value || "")
+    .split(/[\n,|;]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseDelimitedLine(line, delimiter = ";") {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === delimiter && !inQuotes) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  values.push(current.trim());
+  return values;
+}
+
+function parseCsv(csvText) {
+  const lines = String(csvText || "")
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0);
+  if (lines.length === 0) return { headers: [], rows: [] };
+  const headers = parseDelimitedLine(lines[0]);
+  const rows = lines.slice(1).map((line, index) => {
+    const values = parseDelimitedLine(line);
+    const mapped = {};
+    headers.forEach((header, columnIndex) => {
+      mapped[header] = String(values[columnIndex] ?? "").trim();
+    });
+    mapped.__line = index + 2;
+    return mapped;
+  });
+  return { headers, rows };
+}
+
+function normalizeFieldKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getFieldValue(row, preferredField, fallbackPatterns = []) {
+  const exact = row?.[preferredField];
+  if (exact !== undefined && exact !== null && String(exact).trim() !== "") {
+    return String(exact).trim();
+  }
+  const keys = Object.keys(row || {});
+  const preferred = normalizeFieldKey(preferredField);
+  const fallback = fallbackPatterns.map((item) => normalizeFieldKey(item)).filter(Boolean);
+  for (const key of keys) {
+    if (normalizeFieldKey(key) === preferred) {
+      return String(row[key] || "").trim();
+    }
+  }
+  for (const key of keys) {
+    const normalized = normalizeFieldKey(key);
+    if (fallback.some((pattern) => normalized.includes(pattern) || pattern.includes(normalized))) {
+      return String(row[key] || "").trim();
+    }
+  }
+  return "";
+}
+
+function parseImport(csvText, rules) {
+  const normalizedRules = {
+    ...defaultAxemaRules,
+    ...(rules || {})
+  };
+  normalizedRules.admin_access_groups = normalizeList(normalizedRules.admin_access_groups);
+  const houseRegex = new RegExp(normalizedRules.house_regex);
+  const apartmentRegex = new RegExp(normalizedRules.apartment_regex);
+  const adminGroupSet = new Set(normalizedRules.admin_access_groups.map((item) => item.toLowerCase()));
+  const { headers, rows } = parseCsv(csvText);
+  const parsedRows = rows.map((row) => {
+    const uid = getFieldValue(row, normalizedRules.uid_field, ["identitetsid", "uid"]);
+    const sourceValue = getFieldValue(row, normalizedRules.apartment_source_field, ["orggrupp", "placering"]);
+    const houseMatch = houseRegex.exec(sourceValue);
+    const apartmentMatch = apartmentRegex.exec(sourceValue);
+    const house = String(houseMatch?.[1] ?? houseMatch?.[0] ?? "").trim();
+    const apartmentCode = String(apartmentMatch?.[1] ?? apartmentMatch?.[0] ?? "").trim();
+    const accessGroup = getFieldValue(row, normalizedRules.access_group_field, ["behorighetsgrupp"]);
+    const status = getFieldValue(row, normalizedRules.status_field, ["identitetsstatus", "status"]);
+    const isAdmin = adminGroupSet.has(accessGroup.toLowerCase());
+    const isActive =
+      String(normalizedRules.active_status_value || "").trim() === "" ||
+      status === String(normalizedRules.active_status_value);
+    const apartmentId = house && apartmentCode ? `${house}-${apartmentCode}` : isAdmin ? "admin" : "";
+    let ignoredReason = "";
+    if (!uid) ignoredReason = "missing_uid";
+    else if (!apartmentId) ignoredReason = "missing_apartment_mapping";
+    else if (!isActive) ignoredReason = "inactive";
+    return {
+      line: row.__line,
+      uid,
+      source_value: sourceValue,
+      house,
+      apartment_code: apartmentCode,
+      apartment_id: apartmentId,
+      access_group: accessGroup,
+      status,
+      is_admin: isAdmin,
+      is_active: isActive,
+      ignored_reason: ignoredReason
+    };
+  });
+  const parsedTags = parsedRows
+    .filter((row) => !row.ignored_reason)
+    .map((row) => ({
+      uid: row.uid,
+      apartment_id: row.apartment_id,
+      house: row.house,
+      lgh_internal: row.apartment_code,
+      skv_lgh: row.apartment_code,
+      access_groups: row.access_group,
+      is_admin: row.is_admin ? 1 : 0,
+      is_active: row.is_active ? 1 : 0
+    }));
+  const availableAccessGroups = [
+    ...new Set(parsedRows.map((row) => row.access_group).filter(Boolean).map((value) => value.trim()))
+  ].sort((a, b) => a.localeCompare(b, "sv-SE"));
+
+  const existingByUid = new Map(rfidTags.map((tag) => [tag.uid, tag]));
+  const importedByUid = new Map(parsedTags.map((tag) => [tag.uid, tag]));
+  const newTags = parsedTags.filter((tag) => !existingByUid.has(tag.uid));
+  const removedTags = rfidTags.filter((tag) => !importedByUid.has(tag.uid));
+  const changedTags = parsedTags
+    .filter((tag) => existingByUid.has(tag.uid))
+    .map((tag) => {
+      const before = existingByUid.get(tag.uid);
+      const changed =
+        before.apartment_id !== tag.apartment_id ||
+        before.house !== tag.house ||
+        before.lgh_internal !== tag.lgh_internal ||
+        before.skv_lgh !== tag.skv_lgh ||
+        before.access_groups !== tag.access_groups ||
+        Number(before.is_admin) !== Number(tag.is_admin) ||
+        Number(before.is_active) !== Number(tag.is_active);
+      if (!changed) return null;
+      return { uid: tag.uid, before, after: tag, changes: { updated: true } };
+    })
+    .filter(Boolean);
+  const unchangedTags = parsedTags.filter((tag) => {
+    const existing = existingByUid.get(tag.uid);
+    if (!existing) return false;
+    return !changedTags.some((item) => item.uid === tag.uid);
+  });
+
+  return {
+    rules: normalizedRules,
+    headers,
+    parsed_rows: parsedRows,
+    available_access_groups: availableAccessGroups,
+    diff: {
+      new_tags: newTags,
+      removed_tags: removedTags,
+      changed_tags: changedTags,
+      unchanged_tags: unchangedTags,
+      summary: {
+        existing_count: rfidTags.length,
+        parsed_count: parsedTags.length,
+        new_count: newTags.length,
+        removed_count: removedTags.length,
+        changed_count: changedTags.length,
+        unchanged_count: unchangedTags.length
+      }
+    }
+  };
+}
+
+export function getAxemaImportRules() {
+  return structuredClone(axemaRules);
+}
+
+export function saveAxemaImportRules(rules) {
+  axemaRules = {
+    ...axemaRules,
+    ...(rules || {})
+  };
+  axemaRules.admin_access_groups = normalizeList(axemaRules.admin_access_groups);
+  return { status: "ok", rules: structuredClone(axemaRules) };
+}
+
+export function previewAxemaImport(payload = {}) {
+  const csvText = String(payload.csv_text || "").trim();
+  if (!csvText) {
+    const error = new Error("missing_csv");
+    error.status = 400;
+    throw error;
+  }
+  return parseImport(csvText, payload.rules || axemaRules);
+}
+
+export function applyAxemaImport(payload = {}) {
+  const preview = previewAxemaImport(payload);
+  const actions = {
+    add_new: payload.actions?.add_new !== false,
+    update_existing: payload.actions?.update_existing !== false,
+    remove_missing: payload.actions?.remove_missing !== false
+  };
+  if (actions.add_new) {
+    rfidTags = [...rfidTags, ...preview.diff.new_tags];
+  }
+  if (actions.update_existing) {
+    const updatesByUid = new Map(preview.diff.changed_tags.map((item) => [item.uid, item.after]));
+    rfidTags = rfidTags.map((tag) => updatesByUid.get(tag.uid) || tag);
+  }
+  if (actions.remove_missing) {
+    const removedUids = new Set(preview.diff.removed_tags.map((tag) => tag.uid));
+    rfidTags = rfidTags.filter((tag) => !removedUids.has(tag.uid));
+  }
+  return {
+    status: "ok",
+    applied: {
+      ...actions,
+      added: actions.add_new ? preview.diff.new_tags.length : 0,
+      updated: actions.update_existing ? preview.diff.changed_tags.length : 0,
+      removed: actions.remove_missing ? preview.diff.removed_tags.length : 0
+    },
+    summary: preview.diff.summary
+  };
+}
+
+export function getAdminResources(includeInactive = true) {
+  if (!activeIsAdmin) {
+    const error = new Error("forbidden");
+    error.status = 403;
+    throw error;
+  }
+  if (includeInactive) return structuredClone(resources);
+  return structuredClone(resources.filter((resource) => resource.is_active !== 0));
+}
+
+export function createAdminResource(payload = {}) {
+  if (!activeIsAdmin) {
+    const error = new Error("forbidden");
+    error.status = 403;
+    throw error;
+  }
+  const name = String(payload.name || "").trim();
+  if (!name) {
+    const error = new Error("invalid_resource_name");
+    error.status = 400;
+    throw error;
+  }
+  const id = Math.max(0, ...resources.map((resource) => Number(resource.id) || 0)) + 1;
+  const created = {
+    id,
+    name,
+    booking_type: payload.booking_type || "time-slot",
+    category: payload.category || "",
+    slot_duration_minutes: Number(payload.slot_duration_minutes ?? 60),
+    slot_start_hour: Number(payload.slot_start_hour ?? 6),
+    slot_end_hour: Number(payload.slot_end_hour ?? 22),
+    max_future_days: Number(payload.max_future_days ?? 30),
+    min_future_days: Number(payload.min_future_days ?? 0),
+    max_bookings: Number(payload.max_bookings ?? 2),
+    allow_houses: payload.allow_houses || "",
+    deny_apartment_ids: payload.deny_apartment_ids || "",
+    is_active: payload.is_active === false ? 0 : 1,
+    price_weekday_cents: Math.round(Number(payload.price_weekday || 0) * 100),
+    price_weekend_cents: Math.round(Number(payload.price_weekend || 0) * 100),
+    price_cents: Math.round(Number(payload.price_weekday || 0) * 100),
+    is_billable: payload.is_billable ? 1 : 0
+  };
+  resources = [...resources, created];
+  return { status: "ok", resource_id: id };
+}
+
+export function updateAdminResource(resourceId, payload = {}) {
+  if (!activeIsAdmin) {
+    const error = new Error("forbidden");
+    error.status = 403;
+    throw error;
+  }
+  const id = Number(resourceId);
+  const existing = resources.find((resource) => Number(resource.id) === id);
+  if (!existing) {
+    const error = new Error("resource_not_found");
+    error.status = 404;
+    throw error;
+  }
+  const updated = {
+    ...existing,
+    ...payload,
+    name: String(payload.name ?? existing.name).trim(),
+    booking_type: payload.booking_type ?? existing.booking_type,
+    category: payload.category ?? existing.category,
+    slot_duration_minutes: Number(payload.slot_duration_minutes ?? existing.slot_duration_minutes),
+    slot_start_hour: Number(payload.slot_start_hour ?? existing.slot_start_hour),
+    slot_end_hour: Number(payload.slot_end_hour ?? existing.slot_end_hour),
+    max_future_days: Number(payload.max_future_days ?? existing.max_future_days),
+    min_future_days: Number(payload.min_future_days ?? existing.min_future_days),
+    max_bookings: Number(payload.max_bookings ?? existing.max_bookings),
+    allow_houses: payload.allow_houses ?? existing.allow_houses,
+    deny_apartment_ids: payload.deny_apartment_ids ?? existing.deny_apartment_ids,
+    is_active: payload.is_active === undefined ? existing.is_active : payload.is_active ? 1 : 0,
+    price_weekday_cents: Math.round(Number(payload.price_weekday ?? existing.price_weekday_cents / 100) * 100),
+    price_weekend_cents: Math.round(Number(payload.price_weekend ?? existing.price_weekend_cents / 100) * 100),
+    price_cents: Math.round(Number(payload.price_weekday ?? existing.price_weekday_cents / 100) * 100),
+    is_billable:
+      payload.is_billable === undefined ? Number(existing.is_billable) : payload.is_billable ? 1 : 0
+  };
+  resources = resources.map((resource) => (Number(resource.id) === id ? updated : resource));
+  return { status: "ok", resource_id: id };
+}
+
+export function deleteAdminResource(resourceId) {
+  if (!activeIsAdmin) {
+    const error = new Error("forbidden");
+    error.status = 403;
+    throw error;
+  }
+  const id = Number(resourceId);
+  const existing = resources.find((resource) => Number(resource.id) === id);
+  if (!existing) {
+    const error = new Error("resource_not_found");
+    error.status = 404;
+    throw error;
+  }
+  resources = resources.map((resource) =>
+    Number(resource.id) === id ? { ...resource, is_active: 0 } : resource
+  );
+  return { status: "ok" };
 }
