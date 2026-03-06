@@ -1533,7 +1533,9 @@ export function createBookingApp(options = {}) {
         this.passwordUpdateMessage = "";
         await this.loadResources();
         await this.loadBookings();
-        await this.refreshSlots();
+        if (!this.isAdmin) {
+          await this.refreshSlots();
+        }
         if (this.isAdmin) {
           await this.initializeAdminConsole();
         }
@@ -1571,7 +1573,9 @@ export function createBookingApp(options = {}) {
         this.passwordUpdateMessage = "";
         await this.loadResources();
         await this.loadBookings();
-        await this.refreshSlots();
+        if (!this.isAdmin) {
+          await this.refreshSlots();
+        }
         if (this.isAdmin) {
           await this.initializeAdminConsole();
         }
@@ -2870,6 +2874,11 @@ export function createBookingApp(options = {}) {
         this.timeSlotStartIndex = 0;
         this.fullDayMonthOffset = 0;
         this.resetAvailabilityData();
+        // Admin-setup visar inte nästa lediga tid; undvik onödiga slots-anrop.
+        if (this.isAdminMode) {
+          this.nextAvailableByResourceId = {};
+          return;
+        }
         await this.loadNextAvailability();
       } catch (error) {
         if (this.handleSessionExpired(error)) {

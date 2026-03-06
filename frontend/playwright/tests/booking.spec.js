@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 async function resetMocks(page) {
-  await page.goto("/?mode=desktop");
+  await page.goto("/demo-brf?mode=desktop");
   await page.evaluate(async () => {
     const mockApi = await import("/src/mockApi.js");
     mockApi.resetMockState();
@@ -10,7 +10,7 @@ async function resetMocks(page) {
 
 test("POS-login kan ändra mobil-lösenord", async ({ page }) => {
   await resetMocks(page);
-  await page.goto("/?mode=pos");
+  await page.goto("/demo-brf?mode=pos");
 
   await expect(page.getByText("Visa bricka")).toBeVisible();
   await page.keyboard.type("UID123");
@@ -29,7 +29,7 @@ test("POS-login kan ändra mobil-lösenord", async ({ page }) => {
 
 test("Desktop-login fungerar", async ({ page }) => {
   await resetMocks(page);
-  await page.goto("/?mode=desktop");
+  await page.goto("/demo-brf?mode=desktop");
   await page.getByTestId("login-userid").fill("1001");
   await page.getByTestId("login-password").fill("1234");
   await page.getByTestId("desktop-login").click();
@@ -41,7 +41,7 @@ test("Desktop-login fungerar", async ({ page }) => {
 
 test("Boka och avboka", async ({ page }) => {
   await resetMocks(page);
-  await page.goto("/?mode=desktop");
+  await page.goto("/demo-brf?mode=desktop");
   await page.getByTestId("login-userid").fill("1001");
   await page.getByTestId("login-password").fill("1234");
   await page.getByTestId("desktop-login").click();

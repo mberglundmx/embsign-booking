@@ -1029,15 +1029,31 @@ async function listSlots(db, tenantId, resourceId, dateValue, apartmentId, isAdm
     if (daysAhead >= 0 && daysAhead < minFutureDays) continue;
     if (daysAhead >= maxFutureDays) continue;
 
+    const dayStartIso = toIsoSeconds(dayStart);
+    const dayEndIso = toIsoSeconds(dayEnd);
     const intervals = await loadIntervals(
       db,
-      "SELECT start_time, end_time FROM bookings WHERE tenant_id = ? AND resource_id = ?",
-      [tenantId, resource.id]
+      `
+      SELECT start_time, end_time
+      FROM bookings
+      WHERE tenant_id = ?
+        AND resource_id = ?
+        AND start_time < ?
+        AND end_time > ?
+      `,
+      [tenantId, resource.id, dayEndIso, dayStartIso]
     );
     const blockIntervals = await loadIntervals(
       db,
-      "SELECT start_time, end_time FROM booking_blocks WHERE tenant_id = ? AND resource_id = ?",
-      [tenantId, resource.id]
+      `
+      SELECT start_time, end_time
+      FROM booking_blocks
+      WHERE tenant_id = ?
+        AND resource_id = ?
+        AND start_time < ?
+        AND end_time > ?
+      `,
+      [tenantId, resource.id, dayEndIso, dayStartIso]
     );
     intervals.push(...blockIntervals);
 
