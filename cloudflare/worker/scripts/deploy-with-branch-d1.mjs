@@ -423,13 +423,20 @@ function createResolvedWranglerConfig({ databaseId, databaseName }) {
 
 function run() {
   const dryRun = hasFlag("dry-run");
-  const deployMode = getDeployMode();
-  if (deployMode !== "versions-upload" && deployMode !== "deploy") {
-    throw new Error(`Ogiltigt deploy-läge: ${deployMode}. Använd versions-upload eller deploy.`);
+  const requestedDeployMode = getDeployMode();
+  if (requestedDeployMode !== "versions-upload" && requestedDeployMode !== "deploy") {
+    throw new Error(`Ogiltigt deploy-läge: ${requestedDeployMode}. Använd versions-upload eller deploy.`);
   }
 
   const branchName = getBranchName();
+  let deployMode = requestedDeployMode;
   const target = resolveTargetDatabase({ branchName, dryRun, deployMode });
+  if (deployMode === "versions-upload" && target.isProductionBranch) {
+    deployMode = "deploy";
+    console.log(
+      "[deploy] production branch detected; overriding versions-upload -> deploy för stabil D1/runtime-binding"
+    );
+  }
 
   console.log(
     `[d1] branch=${target.branchSlug} production=${target.isProductionBranch} db=${target.databaseName} created=${target.created}`

@@ -77,6 +77,7 @@ Cloudflare Workers Builds (repo-kopplad):
 
 - Preview deploy command: `node cloudflare/worker/scripts/deploy-with-branch-d1.mjs --deploy-mode=versions-upload`
 - Production deploy command: `node cloudflare/worker/scripts/deploy-with-branch-d1.mjs --deploy-mode=deploy`
+- Om `--deploy-mode=versions-upload` råkar användas på produktionsbranch tvingar scriptet automatiskt `deploy` för stabil runtime/D1-binding.
 
 Frontend:
 

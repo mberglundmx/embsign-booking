@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTenantUrl, getTenantIdFromHostname, normalizeTenantId } from "../src/tenant";
+import { buildTenantUrl, detectTenantId, getTenantIdFromHostname, normalizeTenantId } from "../src/tenant";
 
 describe("tenant utils", () => {
   it("hämtar tenant från subdomän", () => {
@@ -28,5 +28,35 @@ describe("tenant utils", () => {
     expect(buildTenantUrl(normalizeTenantId("foo"), mockLocation, "bokningsportal.app")).toBe(
       "http://localhost:5173/foo"
     );
+  });
+
+  it("använder inte sparad tenant på root-path", () => {
+    const windowObject = {
+      location: {
+        hostname: "app.example.com",
+        pathname: "/",
+        search: ""
+      },
+      localStorage: {
+        getItem: () => "foo"
+      }
+    };
+
+    expect(detectTenantId(windowObject)).toBe("");
+  });
+
+  it("kan falla tillbaka till sparad tenant utanför root-path", () => {
+    const windowObject = {
+      location: {
+        hostname: "app.example.com",
+        pathname: "/booking",
+        search: ""
+      },
+      localStorage: {
+        getItem: () => "foo"
+      }
+    };
+
+    expect(detectTenantId(windowObject)).toBe("foo");
   });
 });
