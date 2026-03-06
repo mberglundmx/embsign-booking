@@ -5,6 +5,7 @@ import {
   parseLocalDateString,
   toLocalDateString
 } from "./dateUtils";
+import { buildTenantUrl, detectTenantId, normalizeTenantId, storeTenantId } from "./tenant";
 
 const DEFAULT_MODE = "desktop";
 const FULL_DAY_COUNT = 30;
@@ -13,20 +14,92 @@ const WEEKDAY_LABELS = ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"];
 const NEXT_AVAILABILITY_LOADING = "__loading__";
 const NEXT_AVAILABILITY_NONE = "__none__";
 const DEFAULT_DEPLOY_CHECK_INTERVAL_MS = 30000;
+const TENANT_ID_SUGGESTION_REGEX = /[^a-z0-9-]/g;
+const ROOT_DOMAIN = import.meta.env.VITE_ROOT_DOMAIN || "bokningsportal.app";
 const RAW_CONFIGURED_PUBLIC_HOSTNAME = import.meta.env.VITE_PUBLIC_HOSTNAME ?? "";
 const RAW_FRONTEND_ORIGINS =
   import.meta.env.VITE_FRONTEND_ORIGINS ?? import.meta.env.FRONTEND_ORIGINS ?? "";
 const DEMO_RFID_UID = import.meta.env.VITE_RFID_UID || "UID123";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 const DEPLOY_AUTO_RELOAD_ENABLED = import.meta.env.VITE_AUTO_RELOAD_ON_DEPLOY !== "false";
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+const TURNSTILE_SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+const CAPTCHA_CONFIG_PATH = "/public/captcha-config";
+const CAPTCHA_DEBUG_ENABLED = import.meta.env.VITE_CAPTCHA_DEBUG === "true";
+const AXEMA_PREVIEW_DEBOUNCE_MS = 2200;
+const DEFAULT_TENANT_ID =
+  Boolean(import.meta.vitest) || import.meta.env?.MODE === "test" || import.meta.env?.VITEST === "true"
+    ? "test-brf"
+    : "";
 
 let apiPromise = null;
+let turnstileScriptPromise = null;
+
+function emitCaptchaDebugLog(payload = {}) {
+  if (!CAPTCHA_DEBUG_ENABLED) return;
+  const entry = {
+    ...payload,
+    timestamp: Date.now()
+  };
+  console.info("[captcha-debug]", entry);
+}
 
 async function getApi() {
   if (!apiPromise) {
     apiPromise = USE_MOCKS ? import("./mockApi") : import("./api");
   }
   return apiPromise;
+}
+
+async function ensureTurnstileScript(runtimeWindow) {
+  if (runtimeWindow.turnstile?.render) {
+    return runtimeWindow.turnstile;
+  }
+  if (turnstileScriptPromise) {
+    await turnstileScriptPromise;
+    return runtimeWindow.turnstile;
+  }
+
+  turnstileScriptPromise = new Promise((resolve, reject) => {
+    const existing = runtimeWindow.document.querySelector(`script[src="${TURNSTILE_SCRIPT_SRC}"]`);
+    if (existing) {
+      existing.addEventListener(
+        "load",
+        () => resolve(runtimeWindow.turnstile),
+        { once: true }
+      );
+      existing.addEventListener(
+        "error",
+        () => reject(new Error("turnstile_script_load_failed")),
+        { once: true }
+      );
+      return;
+    }
+
+    const script = runtimeWindow.document.createElement("script");
+    script.src = TURNSTILE_SCRIPT_SRC;
+    script.async = true;
+    script.defer = true;
+    script.addEventListener(
+      "load",
+      () => resolve(runtimeWindow.turnstile),
+      { once: true }
+    );
+    script.addEventListener(
+      "error",
+      () => reject(new Error("turnstile_script_load_failed")),
+      { once: true }
+    );
+    runtimeWindow.document.head.appendChild(script);
+  });
+
+  try {
+    await turnstileScriptPromise;
+  } catch (error) {
+    turnstileScriptPromise = null;
+    throw error;
+  }
+  return runtimeWindow.turnstile;
 }
 
 export function detectMode(search = typeof window !== "undefined" ? window.location.search : "") {
@@ -82,6 +155,15 @@ function getDateString(date) {
   return toLocalDateString(date);
 }
 
+function normalizeTenantInput(value = "") {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(TENANT_ID_SUGGESTION_REGEX, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 function getUpcomingDays(count, startOffset = 0) {
   const today = new Date();
   return Array.from({ length: count }, (_, index) =>
@@ -114,6 +196,73 @@ function formatCompactDate(dateString) {
 
 function formatTimeRange(startIso, endIso) {
   return formatWallClockRange(startIso, endIso);
+}
+
+function parseDelimitedLineClient(line, delimiter = ";") {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"') {
+      if (inQuotes && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === delimiter && !inQuotes) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  values.push(current.trim());
+  return values;
+}
+
+function parseCsvForPreview(csvText, delimiter = ";") {
+  const text = String(csvText || "").replace(/^\uFEFF/, "");
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0);
+  if (lines.length === 0) return { headers: [], rows: [] };
+  const headers = parseDelimitedLineClient(lines[0], delimiter).map((entry) => String(entry || "").trim());
+  const rows = lines.slice(1).map((line) => {
+    const values = parseDelimitedLineClient(line, delimiter);
+    const row = {};
+    headers.forEach((header, index) => {
+      row[header] = String(values[index] ?? "").trim();
+    });
+    return row;
+  });
+  return { headers, rows };
+}
+
+function splitRuleListValues(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry ?? "").trim()).filter(Boolean);
+  }
+  return String(value || "")
+    .split(/[\n,|;]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function normalizeCsvFieldName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeCsvFieldNameLoose(value) {
+  return normalizeCsvFieldName(value).replace(/[aeiouy]/g, "");
 }
 
 export function getHostnameFromAddress(value = "") {
@@ -352,11 +501,47 @@ export function createBookingApp(options = {}) {
     options.windowObject ?? (typeof window !== "undefined" ? window : globalThis);
   const getApiClient = options.getApiClient ?? getApi;
   const modeDetector = options.modeDetector ?? detectMode;
-  const useMocks = options.useMocks ?? USE_MOCKS;
   const demoRfidUid = options.demoRfidUid ?? DEMO_RFID_UID;
 
   return {
     mode: DEFAULT_MODE,
+    tenantId: DEFAULT_TENANT_ID,
+    tenantOptions: [],
+    tenantSelectionInput: DEFAULT_TENANT_ID,
+    tenantNameInput: "",
+    tenantSetupMessage: "",
+    tenantErrorMessage: "",
+    landingTenantSelection: "",
+    registrationOpen: false,
+    registrationStep: 1,
+    registrationSubdomainInput: "",
+    registrationAssociationName: "",
+    registrationEmailInput: "",
+    registrationOrgNumberInput: "",
+    registrationCaptchaToken: "",
+    showCaptchaDiagnostics: CAPTCHA_DEBUG_ENABLED,
+    registrationCaptchaProvider: "turnstile",
+    registrationCaptchaEnabled: Boolean(TURNSTILE_SITE_KEY),
+    registrationCaptchaSiteKey: TURNSTILE_SITE_KEY,
+    registrationCaptchaConfigReason: "",
+    registrationCaptchaConfigSource: "startup",
+    registrationCaptchaConfigEndpoint: `/api${CAPTCHA_CONFIG_PATH}`,
+    registrationCaptchaConfigResponseUrl: "",
+    registrationCaptchaConfigHttpStatus: null,
+    registrationCaptchaProxyWorkerBase: "",
+    registrationCaptchaProxyUpstreamUrl: "",
+    registrationCaptchaProxyUpstreamStatus: "",
+    registrationCaptchaProxyPagesBranch: "",
+    registrationCaptchaManualFallback: false,
+    registrationCaptchaWidgetId: null,
+    registrationCaptchaLoading: false,
+    registrationCaptchaLoadError: "",
+    registrationCaptchaScriptStatus: "idle",
+    registrationCaptchaWidgetRendered: false,
+    registrationErrorMessage: "",
+    registrationSuccessMessage: "",
+    registrationAvailabilityMessage: "",
+    tenantLoading: false,
     isAuthenticated: false,
     authenticatedStep: "setup",
     userId: null,
@@ -394,16 +579,660 @@ export function createBookingApp(options = {}) {
       message: "",
       price: 0
     },
+    adminAxemaCsvText: "",
+    adminAxemaCsvFileName: "",
+    adminAxemaModalOpen: false,
+    adminAxemaHeaders: [],
+    adminAxemaRules: {
+      apartment_source_field: "OrgGrupp",
+      house_regex: "(\\d)-LGH.*",
+      apartment_regex: "\\d-LGH\\d\\d\\d\\d\\s*\\/(\\d\\d\\d\\d).*",
+      uid_field: "Identitetsid",
+      access_group_field: "Behörighetsgrupp",
+      status_field: "Identitetsstatus (0=på 1=av)",
+      active_status_value: "0",
+      admin_access_groups: []
+    },
+    adminAxemaAvailableAccessGroups: [],
+    adminAxemaPreviewRows: [],
+    adminAxemaDiff: null,
+    adminAxemaActionAddNew: true,
+    adminAxemaActionUpdateExisting: true,
+    adminAxemaActionRemoveMissing: true,
+    adminAxemaLoading: false,
+    adminAxemaPreviewDebounceId: null,
+    adminAxemaImportPollTimerId: null,
+    adminAxemaImportProgress: {
+      active: false,
+      importId: "",
+      processed: 0,
+      total: 0,
+      done: false,
+      phase: "idle"
+    },
+    adminAxemaMessage: "",
+    adminAxemaError: "",
+    adminBookingUsers: [],
+    adminResources: [],
+    adminResourceModalOpen: false,
+    adminResourceSaving: false,
+    adminResourceError: "",
+    adminResourceMessage: "",
+    adminResourceHouseOptions: [],
+    adminResourceApartmentOptions: [],
+    adminResourceForm: {
+      id: null,
+      name: "",
+      booking_type: "time-slot",
+      category: "",
+      slot_duration_minutes: 60,
+      slot_start_hour: 6,
+      slot_end_hour: 22,
+      max_future_days: 30,
+      min_future_days: 0,
+      max_bookings: 2,
+      price_weekday: 0,
+      price_weekend: 0,
+      is_billable: false,
+      is_active: true,
+      allow_houses: [],
+      deny_apartment_ids: []
+    },
     errorTimeoutId: null,
 
     async init() {
       this.mode = modeDetector();
       this.days = getUpcomingDays(FULL_DAY_COUNT);
       this.bindRfidListener();
-      if (!useMocks) {
-        const api = await getApiClient();
-        api.logBackendStatus?.();
+      await this.initializeTenantContext();
+      await this.loadCaptchaConfig();
+      const api = await getApiClient();
+      api.logBackendStatus?.();
+    },
+
+    async initializeTenantContext() {
+      const detected = normalizeTenantId(detectTenantId(runtimeWindow));
+      if (detected) {
+        this.tenantId = detected;
+        this.tenantSelectionInput = detected;
+        this.landingTenantSelection = detected;
+        this.registrationSubdomainInput = detected;
+        storeTenantId(detected, runtimeWindow.localStorage);
       }
+      try {
+        const api = await getApiClient();
+        if (typeof api.listTenants === "function") {
+          this.tenantOptions = await api.listTenants();
+        }
+        if (this.tenantId && typeof api.setTenantId === "function") {
+          api.setTenantId(this.tenantId);
+        }
+        if (!this.landingTenantSelection && this.tenantOptions[0]?.id) {
+          this.landingTenantSelection = this.tenantOptions[0].id;
+        }
+      } catch {
+        this.tenantOptions = [];
+      }
+      if (this.tenantId) {
+        const api = await getApiClient();
+        api.setTenantId?.(this.tenantId);
+      }
+    },
+
+    async selectTenant(options = {}) {
+      const preserveSetupMessage = Boolean(options.preserveSetupMessage);
+      const nextTenantId = normalizeTenantId(this.tenantSelectionInput);
+      if (!nextTenantId) {
+        this.tenantErrorMessage = "Ange ett giltigt BRF-ID (a-z, 0-9 och bindestreck).";
+        return;
+      }
+      this.tenantErrorMessage = "";
+      if (!preserveSetupMessage) {
+        this.tenantSetupMessage = "";
+      }
+      const targetUrl = buildTenantUrl(nextTenantId, runtimeWindow.location, ROOT_DOMAIN);
+      if (runtimeWindow.location?.hostname?.includes(ROOT_DOMAIN)) {
+        runtimeWindow.location.assign(targetUrl);
+        return;
+      }
+      this.tenantId = nextTenantId;
+      this.landingTenantSelection = nextTenantId;
+      storeTenantId(nextTenantId, runtimeWindow.localStorage);
+      const api = await getApiClient();
+      api.setTenantId?.(nextTenantId);
+      if (runtimeWindow.history?.replaceState && runtimeWindow.location?.pathname !== `/${nextTenantId}`) {
+        runtimeWindow.history.replaceState({}, "", `/${nextTenantId}`);
+      }
+    },
+
+    goToSelectedTenant() {
+      this.tenantSelectionInput = this.landingTenantSelection;
+      return this.selectTenant();
+    },
+
+    async loadCaptchaConfig() {
+      this.registrationCaptchaProvider = "turnstile";
+      this.registrationCaptchaSiteKey = TURNSTILE_SITE_KEY;
+      this.registrationCaptchaEnabled = Boolean(TURNSTILE_SITE_KEY);
+      this.registrationCaptchaConfigReason = this.registrationCaptchaEnabled ? "ok" : "missing_site_key";
+      this.registrationCaptchaConfigSource = this.registrationCaptchaEnabled
+        ? "vite_env_fallback"
+        : "vite_env_missing";
+      this.registrationCaptchaConfigEndpoint = `/api${CAPTCHA_CONFIG_PATH}`;
+      this.registrationCaptchaConfigResponseUrl = "";
+      this.registrationCaptchaConfigHttpStatus = null;
+      this.registrationCaptchaProxyWorkerBase = "";
+      this.registrationCaptchaProxyUpstreamUrl = "";
+      this.registrationCaptchaProxyUpstreamStatus = "";
+      this.registrationCaptchaProxyPagesBranch = "";
+      this.registrationCaptchaManualFallback = false;
+      // #region agent log
+      emitCaptchaDebugLog({
+        hypothesisId: "H1",
+        location: "frontend/src/app.js:loadCaptchaConfig",
+        message: "load captcha config entry",
+        data: {
+          source: this.registrationCaptchaConfigSource,
+          hasViteSiteKey: Boolean(TURNSTILE_SITE_KEY),
+          endpoint: this.registrationCaptchaConfigEndpoint
+        }
+      });
+      // #endregion
+
+      try {
+        const api = await getApiClient();
+        let backendEnabled = this.registrationCaptchaEnabled;
+        if (typeof api.getCaptchaConfigWithDiagnostics === "function") {
+          const result = await api.getCaptchaConfigWithDiagnostics();
+          const config = result?.config ?? {};
+          const diagnostics = result?.diagnostics ?? {};
+          backendEnabled = Boolean(config?.enabled);
+          this.registrationCaptchaProvider = String(config?.provider || "turnstile");
+          this.registrationCaptchaSiteKey = String(config?.site_key || "").trim();
+          this.registrationCaptchaConfigReason = String(config?.reason || "").trim();
+          this.registrationCaptchaManualFallback = Boolean(config?.manual_fallback_allowed);
+          this.registrationCaptchaConfigSource = "backend_api";
+          this.registrationCaptchaConfigEndpoint = String(diagnostics?.endpoint || "").trim() || `/api${CAPTCHA_CONFIG_PATH}`;
+          this.registrationCaptchaConfigResponseUrl = String(diagnostics?.response_url || "").trim();
+          this.registrationCaptchaConfigHttpStatus = Number.isFinite(diagnostics?.status)
+            ? diagnostics.status
+            : null;
+          this.registrationCaptchaProxyWorkerBase = String(diagnostics?.proxy_worker_base || "").trim();
+          this.registrationCaptchaProxyUpstreamUrl = String(diagnostics?.proxy_upstream_url || "").trim();
+          this.registrationCaptchaProxyUpstreamStatus = String(
+            diagnostics?.proxy_upstream_status || ""
+          ).trim();
+          this.registrationCaptchaProxyPagesBranch = String(diagnostics?.proxy_pages_branch || "").trim();
+          // #region agent log
+          emitCaptchaDebugLog({
+            hypothesisId: "H1",
+            location: "frontend/src/app.js:loadCaptchaConfig",
+            message: "captcha config response meta",
+            data: {
+              endpoint: this.registrationCaptchaConfigEndpoint,
+              responseUrl: this.registrationCaptchaConfigResponseUrl,
+              httpStatus: this.registrationCaptchaConfigHttpStatus,
+              proxyWorkerBase: this.registrationCaptchaProxyWorkerBase,
+              proxyUpstreamStatus: this.registrationCaptchaProxyUpstreamStatus,
+              proxyPagesBranch: this.registrationCaptchaProxyPagesBranch
+            }
+          });
+          // #endregion
+        } else {
+          if (typeof api.getCaptchaConfig !== "function") return;
+          const config = await api.getCaptchaConfig();
+          backendEnabled = Boolean(config?.enabled);
+          this.registrationCaptchaProvider = String(config?.provider || "turnstile");
+          this.registrationCaptchaSiteKey = String(config?.site_key || "").trim();
+          this.registrationCaptchaConfigReason = String(config?.reason || "").trim();
+          this.registrationCaptchaManualFallback = Boolean(config?.manual_fallback_allowed);
+          this.registrationCaptchaConfigSource = "backend_api_legacy";
+          // #region agent log
+          emitCaptchaDebugLog({
+            hypothesisId: "H1",
+            location: "frontend/src/app.js:loadCaptchaConfig",
+            message: "captcha config response meta",
+            data: {
+              endpoint: this.registrationCaptchaConfigEndpoint,
+              responseUrl: this.registrationCaptchaConfigResponseUrl,
+              httpStatus: this.registrationCaptchaConfigHttpStatus,
+              proxyWorkerBase: this.registrationCaptchaProxyWorkerBase,
+              proxyUpstreamStatus: this.registrationCaptchaProxyUpstreamStatus,
+              proxyPagesBranch: this.registrationCaptchaProxyPagesBranch
+            }
+          });
+          // #endregion
+        }
+        this.registrationCaptchaEnabled =
+          backendEnabled &&
+          this.registrationCaptchaConfigReason !== "disabled" &&
+          this.registrationCaptchaProvider === "turnstile" &&
+          Boolean(this.registrationCaptchaSiteKey);
+        // #region agent log
+        emitCaptchaDebugLog({
+          hypothesisId: "H2",
+          location: "frontend/src/app.js:loadCaptchaConfig",
+          message: "captcha config evaluated",
+          data: {
+            provider: this.registrationCaptchaProvider,
+            enabled: this.registrationCaptchaEnabled,
+            reason: this.registrationCaptchaConfigReason,
+            hasSiteKey: Boolean(this.registrationCaptchaSiteKey),
+            source: this.registrationCaptchaConfigSource
+          }
+        });
+        // #endregion
+      } catch (error) {
+        const diagnostics = error?.diagnostics ?? {};
+        this.registrationCaptchaConfigReason = "config_unreachable";
+        this.registrationCaptchaConfigSource = "backend_api_error";
+        this.registrationCaptchaConfigHttpStatus = Number.isFinite(error?.status) ? error.status : null;
+        this.registrationCaptchaConfigEndpoint =
+          String(diagnostics?.endpoint || "").trim() || this.registrationCaptchaConfigEndpoint;
+        this.registrationCaptchaConfigResponseUrl = String(diagnostics?.response_url || "").trim();
+        this.registrationCaptchaProxyWorkerBase = String(diagnostics?.proxy_worker_base || "").trim();
+        this.registrationCaptchaProxyUpstreamUrl = String(diagnostics?.proxy_upstream_url || "").trim();
+        this.registrationCaptchaProxyUpstreamStatus = String(
+          diagnostics?.proxy_upstream_status || ""
+        ).trim();
+        this.registrationCaptchaProxyPagesBranch = String(diagnostics?.proxy_pages_branch || "").trim();
+        console.warn("[captcha] Kunde inte läsa captcha-konfig från backend.");
+        // #region agent log
+        emitCaptchaDebugLog({
+          hypothesisId: "H5",
+          location: "frontend/src/app.js:loadCaptchaConfig",
+          message: "captcha config request failed",
+          data: {
+            reason: this.registrationCaptchaConfigReason,
+            endpoint: this.registrationCaptchaConfigEndpoint,
+            source: this.registrationCaptchaConfigSource
+          }
+        });
+        // #endregion
+        // Behåll frontend-config som fallback om API:t inte svarar.
+      }
+    },
+
+    getCaptchaDisabledMessage() {
+      if (this.registrationCaptchaConfigReason === "missing_site_key") {
+        return "Captcha är inte konfigurerad i backend (TURNSTILE_SITE_KEY saknas).";
+      }
+      if (this.registrationCaptchaConfigReason === "config_unreachable") {
+        return "Kunde inte hämta captcha-konfig från backend.";
+      }
+      return "Captcha är inte tillgänglig just nu.";
+    },
+
+    getRegistrationCaptchaStatusLine() {
+      const parts = [
+        `källa=${this.registrationCaptchaConfigSource || "okänd"}`,
+        `reason=${this.registrationCaptchaConfigReason || "okänd"}`,
+        `enabled=${this.registrationCaptchaEnabled ? "ja" : "nej"}`,
+        `script=${this.registrationCaptchaScriptStatus || "okänd"}`,
+        `rendered=${this.registrationCaptchaWidgetRendered ? "ja" : "nej"}`
+      ];
+      if (this.registrationCaptchaConfigHttpStatus !== null) {
+        parts.push(`http=${this.registrationCaptchaConfigHttpStatus}`);
+      }
+      if (this.registrationCaptchaConfigEndpoint) {
+        parts.push(`endpoint=${this.registrationCaptchaConfigEndpoint}`);
+      }
+      if (this.registrationCaptchaProxyWorkerBase) {
+        parts.push(`workerBase=${this.registrationCaptchaProxyWorkerBase}`);
+      }
+      if (this.registrationCaptchaProxyUpstreamStatus) {
+        parts.push(`upstreamStatus=${this.registrationCaptchaProxyUpstreamStatus}`);
+      }
+      return parts.join(" | ");
+    },
+
+    clearRegistrationCaptchaToken() {
+      this.registrationCaptchaToken = "";
+      if (!this.registrationCaptchaEnabled) return;
+      const turnstile = runtimeWindow.turnstile;
+      if (!turnstile || this.registrationCaptchaWidgetId === null) return;
+      try {
+        turnstile.reset(this.registrationCaptchaWidgetId);
+      } catch {
+        // Ignorera reset-fel och låt nästa render skapa ny widget.
+      }
+    },
+
+    async prepareRegistrationCaptcha() {
+      if (!this.registrationCaptchaEnabled) return;
+      this.registrationCaptchaLoading = true;
+      this.registrationCaptchaLoadError = "";
+      this.registrationCaptchaScriptStatus = "loading";
+      // #region agent log
+      emitCaptchaDebugLog({
+        hypothesisId: "H3",
+        location: "frontend/src/app.js:prepareRegistrationCaptcha",
+        message: "captcha script load started",
+        data: {
+          enabled: this.registrationCaptchaEnabled,
+          siteKeyPresent: Boolean(this.registrationCaptchaSiteKey)
+        }
+      });
+      // #endregion
+      try {
+        await ensureTurnstileScript(runtimeWindow);
+        this.registrationCaptchaScriptStatus = "loaded";
+        await this.$nextTick();
+        this.renderRegistrationCaptchaWidget();
+      } catch {
+        this.registrationCaptchaScriptStatus = "error";
+        this.registrationCaptchaLoadError =
+          "Kunde inte ladda captcha-widget. Ladda om sidan och försök igen.";
+      } finally {
+        // #region agent log
+        emitCaptchaDebugLog({
+          hypothesisId: "H3",
+          location: "frontend/src/app.js:prepareRegistrationCaptcha",
+          message: "captcha script load finished",
+          data: {
+            scriptStatus: this.registrationCaptchaScriptStatus,
+            loadError: this.registrationCaptchaLoadError
+          }
+        });
+        // #endregion
+        this.registrationCaptchaLoading = false;
+      }
+    },
+
+    renderRegistrationCaptchaWidget() {
+      if (!this.registrationCaptchaEnabled) return;
+      const turnstile = runtimeWindow.turnstile;
+      const container = this.$refs?.turnstileWidget;
+      const canRender = Boolean(turnstile && typeof turnstile.render === "function" && container);
+      // #region agent log
+      emitCaptchaDebugLog({
+        hypothesisId: "H4",
+        location: "frontend/src/app.js:renderRegistrationCaptchaWidget",
+        message: "captcha render attempt",
+        data: {
+          canRender,
+          hasTurnstile: Boolean(turnstile),
+          hasRenderFn: Boolean(turnstile && typeof turnstile.render === "function"),
+          hasContainer: Boolean(container)
+        }
+      });
+      // #endregion
+      this.registrationCaptchaWidgetRendered = false;
+      if (!turnstile || typeof turnstile.render !== "function" || !container) return;
+
+      if (this.registrationCaptchaWidgetId !== null) {
+        try {
+          turnstile.remove(this.registrationCaptchaWidgetId);
+        } catch {
+          // Vissa API-versioner kan sakna remove; då återanvänds containern nedan.
+        }
+      }
+      container.innerHTML = "";
+      this.registrationCaptchaWidgetId = turnstile.render(container, {
+        sitekey: this.registrationCaptchaSiteKey,
+        theme: "light",
+        callback: (token) => {
+          this.registrationCaptchaToken = String(token || "").trim();
+          this.registrationErrorMessage = "";
+        },
+        "expired-callback": () => {
+          this.registrationCaptchaToken = "";
+        },
+        "error-callback": () => {
+          this.registrationCaptchaToken = "";
+          this.registrationCaptchaLoadError =
+            "Captcha kunde inte verifieras. Uppdatera sidan och försök igen.";
+        }
+      });
+      this.registrationCaptchaWidgetRendered = true;
+      // #region agent log
+      emitCaptchaDebugLog({
+        hypothesisId: "H4",
+        location: "frontend/src/app.js:renderRegistrationCaptchaWidget",
+        message: "captcha render completed",
+        data: {
+          widgetIdPresent: this.registrationCaptchaWidgetId !== null,
+          rendered: this.registrationCaptchaWidgetRendered
+        }
+      });
+      // #endregion
+    },
+
+    openRegistration() {
+      this.registrationOpen = true;
+      this.registrationStep = 1;
+      this.registrationErrorMessage = "";
+      this.registrationSuccessMessage = "";
+      this.registrationAvailabilityMessage = "";
+      this.registrationCaptchaLoadError = "";
+      this.clearRegistrationCaptchaToken();
+      this.registrationSubdomainInput = normalizeTenantInput(
+        this.registrationSubdomainInput || this.tenantNameInput || ""
+      );
+    },
+
+    closeRegistration() {
+      this.registrationOpen = false;
+      this.registrationStep = 1;
+      this.registrationErrorMessage = "";
+      this.registrationAvailabilityMessage = "";
+      this.registrationCaptchaLoadError = "";
+      this.clearRegistrationCaptchaToken();
+    },
+
+    async checkRegistrationSubdomain() {
+      const candidate = normalizeTenantInput(this.registrationSubdomainInput);
+      if (!candidate) {
+        this.registrationErrorMessage = "Ange ett giltigt förslag på subdomän.";
+        return;
+      }
+      this.registrationErrorMessage = "";
+      this.registrationAvailabilityMessage = "";
+      this.tenantLoading = true;
+      try {
+        const api = await getApiClient();
+        const result = await api.checkSubdomainAvailability(candidate);
+        if (!result.available) {
+          this.registrationErrorMessage = "Subdomänen är redan upptagen. Välj en annan.";
+          return;
+        }
+        this.registrationSubdomainInput = candidate;
+        this.registrationAvailabilityMessage = `Subdomänen ${candidate}.${ROOT_DOMAIN} är ledig.`;
+        this.registrationStep = 2;
+        if (this.registrationCaptchaEnabled) {
+          await this.prepareRegistrationCaptcha();
+        } else if (!this.registrationCaptchaManualFallback) {
+          this.registrationCaptchaLoadError = this.getCaptchaDisabledMessage();
+        }
+      } catch (error) {
+        this.registrationErrorMessage = `Kunde inte kontrollera subdomän (${error?.message || "okänt fel"}).`;
+      } finally {
+        this.tenantLoading = false;
+      }
+    },
+
+    async submitRegistration() {
+      const subdomain = normalizeTenantInput(this.registrationSubdomainInput);
+      const associationName = String(this.registrationAssociationName || "").trim();
+      const email = String(this.registrationEmailInput || "").trim();
+      const organizationNumber = String(this.registrationOrgNumberInput || "").trim();
+      const captchaToken = String(this.registrationCaptchaToken || "").trim();
+      if (!subdomain || !associationName || !email || !organizationNumber) {
+        this.registrationErrorMessage = "Fyll i subdomän, föreningsnamn, e-post och org.nr.";
+        return;
+      }
+      if (this.registrationCaptchaEnabled && !captchaToken) {
+        this.registrationErrorMessage = "Verifiera captcha innan registrering.";
+        return;
+      }
+      if (!this.registrationCaptchaEnabled && this.registrationCaptchaManualFallback && !captchaToken) {
+        this.registrationErrorMessage = "Ange captcha-token (dev-fallback) innan registrering.";
+        return;
+      }
+      if (!this.registrationCaptchaEnabled && !this.registrationCaptchaManualFallback) {
+        this.registrationErrorMessage = this.getCaptchaDisabledMessage();
+        return;
+      }
+      this.registrationErrorMessage = "";
+      this.registrationSuccessMessage = "";
+      this.tenantLoading = true;
+      // #region agent log
+      emitCaptchaDebugLog({
+        hypothesisId: "R1",
+        location: "frontend/src/app.js:submitRegistration",
+        message: "registration submit request",
+        data: {
+          hasSubdomain: Boolean(subdomain),
+          hasAssociationName: Boolean(associationName),
+          hasEmail: Boolean(email),
+          hasOrganizationNumber: Boolean(organizationNumber),
+          captchaEnabled: this.registrationCaptchaEnabled,
+          hasCaptchaToken: Boolean(captchaToken)
+        }
+      });
+      // #endregion
+      try {
+        const api = await getApiClient();
+        const result = await api.registerTenant({
+          subdomain,
+          association_name: associationName,
+          email,
+          organization_number: organizationNumber,
+          captcha_token: captchaToken
+        });
+        this.registrationSuccessMessage =
+          "Registrering skickad. Du får administratörsinloggning via e-post när uppsättningen är klar.";
+        this.tenantOptions = typeof api.listTenants === "function" ? await api.listTenants() : this.tenantOptions;
+        this.landingTenantSelection = subdomain;
+        if (result?.development_preview?.apartment_id && result?.development_preview?.password) {
+          if (result?.status === "email_skipped") {
+            this.registrationSuccessMessage = `Registrering klar. Tillfälliga inloggningsuppgifter: ${result.development_preview.apartment_id} / ${result.development_preview.password}`;
+          } else {
+            this.registrationSuccessMessage = `Registrering klar (dev). Inloggning: ${result.development_preview.apartment_id} / ${result.development_preview.password}`;
+          }
+          this.userIdInput = result.development_preview.apartment_id;
+          this.passwordInput = result.development_preview.password;
+        }
+      } catch (error) {
+        const errorMessage = String(error?.message || "");
+        // #region agent log
+        emitCaptchaDebugLog({
+          hypothesisId: "R2",
+          location: "frontend/src/app.js:submitRegistration",
+          message: "registration submit failed raw error",
+          data: {
+            detailCode: errorMessage,
+            status: Number.isFinite(error?.status) ? error.status : null
+          }
+        });
+        // #endregion
+        const mapped = this.getRegistrationFailureDetails(errorMessage);
+        this.registrationErrorMessage = mapped.message;
+        if (mapped.resetToStepOne) {
+          this.registrationStep = 1;
+        }
+        // #region agent log
+        emitCaptchaDebugLog({
+          hypothesisId: "R3",
+          location: "frontend/src/app.js:submitRegistration",
+          message: "registration submit mapped error",
+          data: {
+            detailCode: errorMessage,
+            mappedMessage: mapped.message,
+            resetToStepOne: mapped.resetToStepOne
+          }
+        });
+        // #endregion
+      } finally {
+        this.tenantLoading = false;
+      }
+    },
+
+    getRegistrationFailureDetails(detailCodeRaw) {
+      const detailCode = String(detailCodeRaw || "").trim();
+      if (detailCode === "subdomain_taken") {
+        return {
+          message: "Subdomänen blev upptagen. Prova en annan.",
+          resetToStepOne: true
+        };
+      }
+      if (detailCode === "invalid_subdomain") {
+        return {
+          message: "Subdomänen är ogiltig. Använd a-z, 0-9 och bindestreck.",
+          resetToStepOne: true
+        };
+      }
+      if (detailCode === "invalid_association_name") {
+        return {
+          message: "Föreningens namn är ogiltigt. Kontrollera fältet och försök igen.",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "invalid_email") {
+        return {
+          message: "E-postadressen är ogiltig.",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "invalid_organization_number") {
+        return {
+          message: "Organisationsnumret är ogiltigt. Ange 10-12 siffror.",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode.startsWith("captcha_failed")) {
+        const reason = detailCode.split(":")[1] || "";
+        return {
+          message: this.getCaptchaFailureMessage(reason),
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "email_not_configured") {
+        return {
+          message: "Registreringen är tillfälligt otillgänglig: e-postleverans är inte konfigurerad.",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "email_delivery_failed") {
+        return {
+          message: "Kunde inte skicka e-post med inloggningsuppgifter. Försök igen senare.",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "missing_d1_binding") {
+        return {
+          message: "Registreringen är tillfälligt otillgänglig (databas saknas i miljön).",
+          resetToStepOne: false
+        };
+      }
+      if (detailCode === "internal_error") {
+        return {
+          message: "Ett internt fel uppstod vid registrering. Försök igen.",
+          resetToStepOne: false
+        };
+      }
+      return {
+        message: "Registreringen misslyckades just nu. Försök igen.",
+        resetToStepOne: false
+      };
+    },
+
+    getCaptchaFailureMessage(reasonCode) {
+      const reason = String(reasonCode || "").trim();
+      if (reason === "invalid-input-secret" || reason === "missing-input-secret") {
+        return "Turnstile är felkonfigurerad i backend (kontrollera TURNSTILE_SECRET).";
+      }
+      if (
+        reason === "invalid-input-response" ||
+        reason === "missing-input-response" ||
+        reason === "timeout-or-duplicate"
+      ) {
+        return "Turnstile-verifieringen blev ogiltig eller gick ut. Försök igen.";
+      }
+      if (reason === "bad-request" || reason === "internal-error") {
+        return "Turnstile-verifieringen misslyckades tillfälligt. Försök igen.";
+      }
+      return "Turnstile-verifieringen misslyckades.";
     },
 
     get selectedResource() {
@@ -428,6 +1257,14 @@ export function createBookingApp(options = {}) {
 
     get isPosMode() {
       return this.mode === "pos";
+    },
+
+    get hasTenantSelected() {
+      return Boolean(this.tenantId);
+    },
+
+    get isLandingPage() {
+      return !this.isAuthenticated && !this.hasTenantSelected;
     },
 
     get isSetupStep() {
@@ -674,10 +1511,15 @@ export function createBookingApp(options = {}) {
     },
 
     async loginPos(uidOverride = "") {
+      if (!this.hasTenantSelected) {
+        this.showError("Välj först BRF-ID.");
+        return;
+      }
       this.loading = true;
       this.clearError();
       try {
         const api = await getApiClient();
+        api.setTenantId?.(this.tenantId);
         const uid = uidOverride || demoRfidUid;
         const result = await api.loginWithRfid(uid);
         this.isAuthenticated = true;
@@ -692,6 +1534,9 @@ export function createBookingApp(options = {}) {
         await this.loadResources();
         await this.loadBookings();
         await this.refreshSlots();
+        if (this.isAdmin) {
+          await this.initializeAdminConsole();
+        }
       } catch (error) {
         if (error?.status === 401) {
           this.showError("Brickan är inte registrerad eller är inaktiv.");
@@ -703,10 +1548,15 @@ export function createBookingApp(options = {}) {
     },
 
     async loginPassword() {
+      if (!this.hasTenantSelected) {
+        this.showError("Välj först BRF-ID.");
+        return;
+      }
       this.loading = true;
       this.clearError();
       try {
         const api = await getApiClient();
+        api.setTenantId?.(this.tenantId);
         const result = await api.loginWithPassword(
           this.userIdInput.trim(),
           this.passwordInput.trim()
@@ -722,6 +1572,9 @@ export function createBookingApp(options = {}) {
         await this.loadResources();
         await this.loadBookings();
         await this.refreshSlots();
+        if (this.isAdmin) {
+          await this.initializeAdminConsole();
+        }
       } catch (error) {
         if (error?.status === 401) {
           this.showError(
@@ -792,6 +1645,624 @@ export function createBookingApp(options = {}) {
       }
     },
 
+    resetAdminConsoleState() {
+      this.adminAxemaCsvText = "";
+      this.adminAxemaCsvFileName = "";
+      this.adminAxemaModalOpen = false;
+      this.adminAxemaHeaders = [];
+      this.adminAxemaAvailableAccessGroups = [];
+      this.adminAxemaPreviewRows = [];
+      this.adminAxemaDiff = null;
+      this.adminAxemaActionAddNew = true;
+      this.adminAxemaActionUpdateExisting = true;
+      this.adminAxemaActionRemoveMissing = true;
+      this.adminAxemaLoading = false;
+      if (this.adminAxemaPreviewDebounceId) {
+        runtimeWindow.clearTimeout(this.adminAxemaPreviewDebounceId);
+        this.adminAxemaPreviewDebounceId = null;
+      }
+      if (this.adminAxemaImportPollTimerId) {
+        runtimeWindow.clearInterval(this.adminAxemaImportPollTimerId);
+        this.adminAxemaImportPollTimerId = null;
+      }
+      this.adminAxemaImportProgress = {
+        active: false,
+        importId: "",
+        processed: 0,
+        total: 0,
+        done: false,
+        phase: "idle"
+      };
+      this.adminAxemaMessage = "";
+      this.adminAxemaError = "";
+      this.adminBookingUsers = [];
+      this.adminResources = [];
+      this.adminResourceModalOpen = false;
+      this.adminResourceSaving = false;
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      this.adminResourceHouseOptions = [];
+      this.adminResourceApartmentOptions = [];
+      this.adminResourceForm = {
+        id: null,
+        name: "",
+        booking_type: "time-slot",
+        category: "",
+        slot_duration_minutes: 60,
+        slot_start_hour: 6,
+        slot_end_hour: 22,
+        max_future_days: 30,
+        min_future_days: 0,
+        max_bookings: 2,
+        price_weekday: 0,
+        price_weekend: 0,
+        is_billable: false,
+        is_active: true,
+        allow_houses: [],
+        deny_apartment_ids: []
+      };
+    },
+
+    getAxemaFieldOptions(selectedValue = "") {
+      const options = [...this.adminAxemaHeaders];
+      const selected = String(selectedValue || "").trim();
+      if (selected && !options.includes(selected)) {
+        options.unshift(selected);
+      }
+      return options;
+    },
+
+    refreshAxemaCsvMetadata() {
+      const { headers, rows } = parseCsvForPreview(this.adminAxemaCsvText);
+      this.adminAxemaHeaders = headers;
+      const pickHeader = (current, candidates = []) => {
+        if (headers.includes(current)) return current;
+        const normalizedCandidates = candidates.map((candidate) => normalizeCsvFieldName(candidate));
+        const normalizedCandidatesLoose = candidates.map((candidate) =>
+          normalizeCsvFieldNameLoose(candidate)
+        );
+        const match = headers.find((header) => {
+          const normalizedHeader = normalizeCsvFieldName(header);
+          const normalizedHeaderLoose = normalizeCsvFieldNameLoose(header);
+          return normalizedCandidates.some(
+            (candidate) => normalizedHeader.includes(candidate) || candidate.includes(normalizedHeader)
+          ) || normalizedCandidatesLoose.some(
+            (candidate) =>
+              normalizedHeaderLoose.includes(candidate) || candidate.includes(normalizedHeaderLoose)
+          );
+        });
+        return match || current;
+      };
+      this.adminAxemaRules.apartment_source_field = pickHeader(this.adminAxemaRules.apartment_source_field, [
+        "OrgGrupp",
+        "Placering"
+      ]);
+      this.adminAxemaRules.uid_field = pickHeader(this.adminAxemaRules.uid_field, ["Identitetsid", "UID"]);
+      this.adminAxemaRules.access_group_field = pickHeader(this.adminAxemaRules.access_group_field, [
+        "Behörighetsgrupp",
+        "AccessGroup"
+      ]);
+      this.adminAxemaRules.status_field = pickHeader(this.adminAxemaRules.status_field, [
+        "Identitetsstatus",
+        "Status"
+      ]);
+
+      const accessField = this.adminAxemaRules.access_group_field;
+      const availableGroups = [
+        ...new Set(
+          rows
+            .flatMap((row) =>
+              String(row?.[accessField] || "")
+                .split("|")
+                .map((entry) => entry.trim())
+                .filter(Boolean)
+            )
+        )
+      ].sort((a, b) => a.localeCompare(b, "sv-SE"));
+      this.adminAxemaAvailableAccessGroups = availableGroups;
+      const groupLookup = new Map(
+        availableGroups.map((group) => [normalizeCsvFieldName(group), group])
+      );
+      const groupLookupLoose = new Map(
+        availableGroups.map((group) => [normalizeCsvFieldNameLoose(group), group])
+      );
+      this.adminAxemaRules.admin_access_groups = splitRuleListValues(
+        this.adminAxemaRules.admin_access_groups
+      )
+        .map((group) => {
+          if (availableGroups.length === 0) return group;
+          const resolved =
+            groupLookup.get(normalizeCsvFieldName(group)) ||
+            groupLookupLoose.get(normalizeCsvFieldNameLoose(group));
+          return resolved || "";
+        })
+        .filter(Boolean);
+    },
+
+    scheduleAxemaPreview() {
+      if (!this.adminAxemaModalOpen) return;
+      if (this.adminAxemaPreviewDebounceId) {
+        runtimeWindow.clearTimeout(this.adminAxemaPreviewDebounceId);
+      }
+      this.adminAxemaPreviewDebounceId = runtimeWindow.setTimeout(() => {
+        this.previewAxemaImport({ silent: true });
+      }, AXEMA_PREVIEW_DEBOUNCE_MS);
+    },
+
+    openAxemaImportModal() {
+      this.adminAxemaModalOpen = true;
+      this.adminAxemaError = "";
+      this.adminAxemaMessage = "";
+      this.refreshAxemaCsvMetadata();
+      this.scheduleAxemaPreview();
+    },
+
+    closeAxemaImportModal() {
+      this.adminAxemaModalOpen = false;
+      if (this.adminAxemaPreviewDebounceId) {
+        runtimeWindow.clearTimeout(this.adminAxemaPreviewDebounceId);
+        this.adminAxemaPreviewDebounceId = null;
+      }
+    },
+
+    getAxemaActionLabel(row) {
+      if (!row) return "Ignorera";
+      if (row.preview_type === "removed") {
+        return this.adminAxemaActionRemoveMissing ? "Radera" : "Ignorera";
+      }
+      if (row.ignored_reason) return "Ignorera";
+      const uid = String(row.uid || "");
+      const newUids = new Set((this.adminAxemaDiff?.new_tags || []).map((item) => String(item.uid || "")));
+      const changedUids = new Set(
+        (this.adminAxemaDiff?.changed_tags || []).map((item) => String(item.uid || ""))
+      );
+      const unchangedUids = new Set(
+        (this.adminAxemaDiff?.unchanged_tags || []).map((item) => String(item.uid || ""))
+      );
+      if (newUids.has(uid)) return this.adminAxemaActionAddNew ? "Lägg till" : "Ignorera";
+      if (changedUids.has(uid)) return this.adminAxemaActionUpdateExisting ? "Uppdatera" : "Ignorera";
+      if (unchangedUids.has(uid)) return "Ingen ändring";
+      return "Ingen ändring";
+    },
+
+    getAxemaActionPillClass(actionLabel) {
+      if (actionLabel === "Lägg till") return "bg-emerald-100 text-emerald-800 border border-emerald-200";
+      if (actionLabel === "Radera") return "bg-rose-100 text-rose-800 border border-rose-200";
+      if (actionLabel === "Uppdatera") return "bg-amber-100 text-amber-800 border border-amber-200";
+      return "bg-slate-100 text-slate-700 border border-slate-200";
+    },
+
+    getAxemaProgressPercent() {
+      const total = Number(this.adminAxemaImportProgress.total || 0);
+      const processed = Number(this.adminAxemaImportProgress.processed || 0);
+      if (total <= 0) {
+        return this.adminAxemaImportProgress.done ? 100 : 0;
+      }
+      return Math.max(0, Math.min(100, Math.round((processed / total) * 100)));
+    },
+
+    getAxemaPreviewRowsWithActions() {
+      const sourceRows = (this.adminAxemaPreviewRows || []).map((row) => ({
+        ...row,
+        preview_type: "source"
+      }));
+      const removedRows = (this.adminAxemaDiff?.removed_tags || []).map((tag) => ({
+        line: "-",
+        uid: tag.uid,
+        source_value: "(saknas i importfil)",
+        house: tag.house,
+        apartment_id: tag.apartment_id,
+        is_admin: Boolean(tag.is_admin),
+        ignored_reason: "",
+        preview_type: "removed"
+      }));
+      return [...sourceRows, ...removedRows];
+    },
+
+    async handleAdminResourceSelection() {
+      if (!this.selectedResourceId) return;
+      if (this.isAdminMode && this.isSetupStep) {
+        return;
+      }
+      await this.selectResource(this.selectedResourceId);
+    },
+
+    async openAdminBookingSchedule() {
+      if (!this.adminBookingApartmentId) {
+        this.showError("Välj användare först.");
+        return;
+      }
+      if (!this.selectedResourceId) {
+        this.showError("Välj bokningsobjekt först.");
+        return;
+      }
+      await this.selectResource(this.selectedResourceId);
+      this.authenticatedStep = "schedule";
+    },
+
+    async refreshAdminContextOptions() {
+      try {
+        const api = await getApiClient();
+        if (typeof api.getAdminUsers === "function") {
+          const context = await api.getAdminUsers();
+          this.adminBookingUsers = context?.users ?? [];
+          this.adminResourceHouseOptions = context?.houses ?? [];
+          this.adminResourceApartmentOptions = context?.apartments ?? [];
+          if (!this.adminBookingApartmentId) {
+            const firstApartment = this.adminBookingUsers.find(
+              (user) => String(user.id || "").toLowerCase() !== "admin"
+            );
+            this.adminBookingApartmentId = firstApartment?.id || "";
+          }
+        }
+      } catch {
+        // non-blocking
+      }
+    },
+
+    async initializeAdminConsole() {
+      this.adminAxemaError = "";
+      this.adminResourceError = "";
+      try {
+        const api = await getApiClient();
+        if (typeof api.getAxemaImportRules === "function") {
+          const rules = await api.getAxemaImportRules();
+          this.adminAxemaRules = {
+            ...this.adminAxemaRules,
+            ...(rules || {}),
+            admin_access_groups: Array.isArray(rules?.admin_access_groups)
+              ? [...rules.admin_access_groups]
+              : []
+          };
+        }
+        if (typeof api.getAdminResources === "function") {
+          this.adminResources = await api.getAdminResources(true);
+        }
+        await this.refreshAdminContextOptions();
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        this.adminAxemaError = "Kunde inte ladda admininställningar.";
+      }
+    },
+
+    async onAxemaCsvSelected(event) {
+      this.adminAxemaError = "";
+      const file = event?.target?.files?.[0];
+      if (!file) return;
+      this.adminAxemaCsvFileName = file.name || "";
+      const buffer = await file.arrayBuffer();
+      let decodedText = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+      const utf8ReplacementCount = (decodedText.match(/\uFFFD/g) || []).length;
+      if (utf8ReplacementCount > 0) {
+        const latinText = new TextDecoder("windows-1252", { fatal: false }).decode(buffer);
+        const latinReplacementCount = (latinText.match(/\uFFFD/g) || []).length;
+        if (latinReplacementCount <= utf8ReplacementCount) {
+          decodedText = latinText;
+        }
+      }
+      this.adminAxemaCsvText = String(decodedText || "");
+      this.refreshAxemaCsvMetadata();
+      this.scheduleAxemaPreview();
+    },
+
+    onAxemaCsvInputChanged() {
+      this.refreshAxemaCsvMetadata();
+      this.scheduleAxemaPreview();
+    },
+
+    onAxemaRulesChanged() {
+      this.refreshAxemaCsvMetadata();
+      this.scheduleAxemaPreview();
+    },
+
+    getExpectedAxemaImportOperations() {
+      const summary = this.adminAxemaDiff?.summary || {};
+      const addCount = this.adminAxemaActionAddNew ? Number(summary.new_count || 0) : 0;
+      const updateCount = this.adminAxemaActionUpdateExisting ? Number(summary.changed_count || 0) : 0;
+      const removeCount = this.adminAxemaActionRemoveMissing ? Number(summary.removed_count || 0) : 0;
+      return addCount + updateCount + removeCount;
+    },
+
+    stopAxemaImportPolling() {
+      if (this.adminAxemaImportPollTimerId) {
+        runtimeWindow.clearInterval(this.adminAxemaImportPollTimerId);
+        this.adminAxemaImportPollTimerId = null;
+      }
+    },
+
+    async pollAxemaImportStatus(importId) {
+      if (!importId) return;
+      try {
+        const api = await getApiClient();
+        if (typeof api.getAxemaImportStatus !== "function") return;
+        const status = await api.getAxemaImportStatus(importId);
+        if (!status) return;
+        this.adminAxemaImportProgress = {
+          active: !status.done,
+          importId,
+          processed: Number(status.processed || 0),
+          total: Number(status.total || 0),
+          done: Boolean(status.done),
+          phase: String(status.phase || "running")
+        };
+        if (status.done) {
+          this.stopAxemaImportPolling();
+        }
+      } catch {
+        // ignore transient poll errors
+      }
+    },
+
+    async previewAxemaImport({ silent = false } = {}) {
+      this.adminAxemaError = "";
+      if (!silent) {
+        this.adminAxemaMessage = "";
+      }
+      const csvText = String(this.adminAxemaCsvText || "").trim();
+      if (!csvText) {
+        this.adminAxemaDiff = null;
+        this.adminAxemaPreviewRows = [];
+        if (!silent) {
+          this.adminAxemaError = "Ladda upp eller klistra in CSV först.";
+        }
+        return;
+      }
+      this.adminAxemaLoading = true;
+      try {
+        const api = await getApiClient();
+        if (typeof api.previewAxemaImport !== "function") {
+          this.adminAxemaError = "Preview stöds inte i denna miljö.";
+          return;
+        }
+        const result = await api.previewAxemaImport({
+          csv_text: csvText,
+          rules: this.adminAxemaRules
+        });
+        this.adminAxemaPreviewRows = result?.parsed_rows ?? [];
+        this.adminAxemaHeaders = result?.headers ?? this.adminAxemaHeaders;
+        this.adminAxemaAvailableAccessGroups = result?.available_access_groups ?? [];
+        this.adminAxemaDiff = result?.diff ?? null;
+        if (result?.rules) {
+          this.adminAxemaRules = {
+            ...this.adminAxemaRules,
+            ...result.rules,
+            admin_access_groups: Array.isArray(result.rules.admin_access_groups)
+              ? [...result.rules.admin_access_groups]
+              : []
+          };
+        }
+        if (!silent) {
+          this.adminAxemaMessage = "Preview klar. Granska diffen innan du importerar.";
+        }
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        const errorDetail = String(error?.message || "");
+        if (errorDetail.startsWith("invalid_regex:")) {
+          this.adminAxemaError = `Ogiltigt regex: ${errorDetail.replace("invalid_regex:", "")}`;
+        } else {
+          this.adminAxemaError = "Kunde inte skapa import-preview.";
+        }
+      } finally {
+        this.adminAxemaLoading = false;
+      }
+    },
+
+    async applyAxemaImport() {
+      this.adminAxemaError = "";
+      this.adminAxemaMessage = "";
+      const csvText = String(this.adminAxemaCsvText || "").trim();
+      if (!csvText) {
+        this.adminAxemaError = "Ladda upp eller klistra in CSV först.";
+        return;
+      }
+      this.adminAxemaLoading = true;
+      this.stopAxemaImportPolling();
+      const importId = `imp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      this.adminAxemaImportProgress = {
+        active: true,
+        importId,
+        processed: 0,
+        total: this.getExpectedAxemaImportOperations(),
+        done: false,
+        phase: "running"
+      };
+      this.adminAxemaImportPollTimerId = runtimeWindow.setInterval(() => {
+        this.pollAxemaImportStatus(importId);
+      }, 700);
+      try {
+        const api = await getApiClient();
+        if (typeof api.applyAxemaImport !== "function") {
+          this.adminAxemaImportProgress = {
+            ...this.adminAxemaImportProgress,
+            active: false,
+            done: true,
+            phase: "unsupported"
+          };
+          this.adminAxemaError = "Import stöds inte i denna miljö.";
+          return;
+        }
+        const result = await api.applyAxemaImport({
+          csv_text: csvText,
+          rules: this.adminAxemaRules,
+          actions: {
+            add_new: this.adminAxemaActionAddNew,
+            update_existing: this.adminAxemaActionUpdateExisting,
+            remove_missing: this.adminAxemaActionRemoveMissing
+          },
+          import_id: importId
+        });
+        this.adminAxemaImportProgress = {
+          active: false,
+          importId,
+          processed: Number(result?.progress?.processed ?? this.adminAxemaImportProgress.total ?? 0),
+          total: Number(result?.progress?.total ?? this.adminAxemaImportProgress.total ?? 0),
+          done: true,
+          phase: "done"
+        };
+        this.adminAxemaMessage = `Import klar. Nya: ${result?.applied?.added ?? 0}, uppdaterade: ${result?.applied?.updated ?? 0}, borttagna: ${result?.applied?.removed ?? 0}.`;
+        await this.previewAxemaImport({ silent: true });
+        await this.refreshAdminContextOptions();
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        this.adminAxemaImportProgress = {
+          ...this.adminAxemaImportProgress,
+          active: false,
+          done: true,
+          phase: "failed"
+        };
+        this.adminAxemaError = "Kunde inte utföra import.";
+      } finally {
+        this.stopAxemaImportPolling();
+        this.adminAxemaLoading = false;
+      }
+    },
+
+    openCreateResourceForm() {
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      this.adminResourceModalOpen = true;
+      this.adminResourceForm = {
+        id: null,
+        name: "",
+        booking_type: "time-slot",
+        category: "",
+        slot_duration_minutes: 60,
+        slot_start_hour: 6,
+        slot_end_hour: 22,
+        max_future_days: 30,
+        min_future_days: 0,
+        max_bookings: 2,
+        price_weekday: 0,
+        price_weekend: 0,
+        is_billable: false,
+        is_active: true,
+        allow_houses: [],
+        deny_apartment_ids: []
+      };
+    },
+
+    openEditResourceForm(resource) {
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      this.adminResourceModalOpen = true;
+      this.adminResourceForm = {
+        id: Number(resource.id),
+        name: String(resource.name || ""),
+        booking_type: String(resource.booking_type || "time-slot"),
+        category: String(resource.category || ""),
+        slot_duration_minutes: Number(resource.slot_duration_minutes ?? 60),
+        slot_start_hour: Number(resource.slot_start_hour ?? 6),
+        slot_end_hour: Number(resource.slot_end_hour ?? 22),
+        max_future_days: Number(resource.max_future_days ?? 30),
+        min_future_days: Number(resource.min_future_days ?? 0),
+        max_bookings: Number(resource.max_bookings ?? 2),
+        price_weekday: Number(resource.price_weekday_cents ?? resource.price_cents ?? 0) / 100,
+        price_weekend:
+          Number(resource.price_weekend_cents ?? resource.price_weekday_cents ?? resource.price_cents ?? 0) /
+          100,
+        is_billable: Boolean(resource.is_billable),
+        is_active: Boolean(resource.is_active ?? true),
+        allow_houses: splitRuleListValues(resource.allow_houses),
+        deny_apartment_ids: splitRuleListValues(resource.deny_apartment_ids)
+      };
+      for (const house of this.adminResourceForm.allow_houses) {
+        if (!this.adminResourceHouseOptions.includes(house)) {
+          this.adminResourceHouseOptions.push(house);
+        }
+      }
+      for (const apartmentId of this.adminResourceForm.deny_apartment_ids) {
+        if (!this.adminResourceApartmentOptions.includes(apartmentId)) {
+          this.adminResourceApartmentOptions.push(apartmentId);
+        }
+      }
+      this.adminResourceHouseOptions = [...new Set(this.adminResourceHouseOptions)].sort((a, b) =>
+        String(a).localeCompare(String(b), "sv-SE")
+      );
+      this.adminResourceApartmentOptions = [...new Set(this.adminResourceApartmentOptions)].sort((a, b) =>
+        String(a).localeCompare(String(b), "sv-SE")
+      );
+    },
+
+    closeResourceModal() {
+      this.adminResourceModalOpen = false;
+    },
+
+    async saveResourceForm() {
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      if (!String(this.adminResourceForm.name || "").trim()) {
+        this.adminResourceError = "Namn krävs.";
+        return;
+      }
+      this.adminResourceSaving = true;
+      try {
+        const api = await getApiClient();
+        const payload = {
+          name: this.adminResourceForm.name,
+          booking_type: this.adminResourceForm.booking_type,
+          category: this.adminResourceForm.category,
+          slot_duration_minutes: Number(this.adminResourceForm.slot_duration_minutes),
+          slot_start_hour: Number(this.adminResourceForm.slot_start_hour),
+          slot_end_hour: Number(this.adminResourceForm.slot_end_hour),
+          max_future_days: Number(this.adminResourceForm.max_future_days),
+          min_future_days: Number(this.adminResourceForm.min_future_days),
+          max_bookings: Number(this.adminResourceForm.max_bookings),
+          price_weekday: Number(this.adminResourceForm.price_weekday),
+          price_weekend: Number(this.adminResourceForm.price_weekend),
+          is_billable: Boolean(this.adminResourceForm.is_billable),
+          is_active: Boolean(this.adminResourceForm.is_active),
+          allow_houses: splitRuleListValues(this.adminResourceForm.allow_houses),
+          deny_apartment_ids: splitRuleListValues(this.adminResourceForm.deny_apartment_ids)
+        };
+        if (this.adminResourceForm.id) {
+          await api.updateAdminResource(this.adminResourceForm.id, payload);
+          this.adminResourceMessage = "Bokningsobjekt uppdaterat.";
+        } else {
+          await api.createAdminResource(payload);
+          this.adminResourceMessage = "Bokningsobjekt skapat.";
+        }
+        if (typeof api.getAdminResources === "function") {
+          this.adminResources = await api.getAdminResources(true);
+        }
+        await this.refreshAdminContextOptions();
+        await this.loadResources();
+        this.adminResourceModalOpen = false;
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        this.adminResourceError = "Kunde inte spara bokningsobjekt.";
+      } finally {
+        this.adminResourceSaving = false;
+      }
+    },
+
+    async deactivateResource(resourceId) {
+      this.adminResourceError = "";
+      this.adminResourceMessage = "";
+      try {
+        const api = await getApiClient();
+        await api.deleteAdminResource(resourceId);
+        if (typeof api.getAdminResources === "function") {
+          this.adminResources = await api.getAdminResources(true);
+        }
+        await this.refreshAdminContextOptions();
+        await this.loadResources();
+        this.adminResourceMessage = "Bokningsobjekt markerat som inaktivt.";
+      } catch (error) {
+        if (this.handleSessionExpired(error)) {
+          return;
+        }
+        this.adminResourceError = "Kunde inte inaktivera bokningsobjekt.";
+      }
+    },
+
     logout() {
       this.isAuthenticated = false;
       this.authenticatedStep = "setup";
@@ -815,6 +2286,7 @@ export function createBookingApp(options = {}) {
       this.selectedResourceId = null;
       this.bookings = [];
       this.resetAvailabilityData();
+      this.resetAdminConsoleState();
     },
 
     async loadBookings() {

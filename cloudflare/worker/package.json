@@ -1,0 +1,16 @@
+{
+  "name": "brf-booking-cloudflare-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --config wrangler.local.toml",
+    "deploy": "wrangler deploy --config ../../wrangler.jsonc",
+    "deploy:auto-d1": "node scripts/deploy-with-branch-d1.mjs --deploy-mode=versions-upload",
+    "deploy:auto-d1:deploy": "node scripts/deploy-with-branch-d1.mjs --deploy-mode=deploy",
+    "d1:migrate:local": "wrangler d1 migrations apply brf-booking-d1 --local --config wrangler.local.toml",
+    "d1:migrate:remote": "wrangler d1 migrations apply brf-booking-d1 --remote --config ../../wrangler.jsonc"
+  },
+  "devDependencies": {
+    "wrangler": "latest"
+  }
+}

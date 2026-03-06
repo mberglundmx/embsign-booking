@@ -2,30 +2,33 @@
 
 ## Cursor Cloud specific instructions
 
-This is a BRF Laundry Booking System with a Python/FastAPI backend and a Vite/Alpine.js frontend.
+This is a BRF Laundry Booking System on Cloudflare stack:
+
+- Backend: Cloudflare Worker (`cloudflare/worker`)
+- Database: Cloudflare D1
+- Frontend: Cloudflare Pages (`frontend`)
 
 ### Services
 
 | Service | Command | Port |
 |---|---|---|
-| Backend (FastAPI) | `CSV_URL="" uvicorn app.main:app --port 8000 --host 0.0.0.0` | 8000 |
-| Frontend (Vite) | `VITE_API_BASE=http://localhost:8000 npm run dev` (in `frontend/`) | 5173 |
+| Worker API (local) | `npm run dev` (in `cloudflare/worker/`) | 8787 |
+| Frontend (Vite) | `npm run dev` (in `frontend/`) | 5173 |
+| Frontend (Pages local) | `npm run build && npx wrangler pages dev dist` (in `frontend/`) | 8788 |
 
 ### Important caveats
 
-- **`CSV_URL` handling**: The `CSV_URL` and `GITHUB_TOKEN` secrets are injected into the environment. The backend converts `github.com` web URLs to GitHub API URLs automatically. When running `pytest`, set `CSV_URL=""` to skip RFID cache loading (tests use in-memory fixtures instead). When running the dev server, the real CSV_URL works fine if the token is valid.
-- **Seeding test data**: The SQLite DB (`app.db`) starts empty. Apartments are auto-created on RFID login. For resources, insert manually:
-  ```python
-  python3 -c "
-  import sqlite3
-  conn = sqlite3.connect('app.db')
-  conn.execute('INSERT OR IGNORE INTO resources (id, name, booking_type, is_active, price_cents, is_billable) VALUES (1, \"Tvättstuga 1\", \"time-slot\", 1, 0, 0)')
-  conn.commit(); conn.close()
-  "
-  ```
-  For POS mode, set `VITE_RFID_UID` to a real UID from the CSV (e.g., `00000003666340236` for apartment 1-LGH1013/1201).
-- **Backend tests**: Run `CSV_URL="" pytest` from the repo root. Tests use in-memory SQLite and override the DB dependency, so no seeding is needed.
-- **Frontend unit tests**: Run `npx vitest run --dir tests` in `frontend/`. The default `npm run test` / `npx vitest run` will also pick up Playwright spec files which causes an error; use `--dir tests` to scope to unit tests only.
+- **D1 binding in Cloudflare builds**: root `wrangler.jsonc` uses `${D1_DATABASE_ID}`. If you run `wrangler versions upload` directly, set `D1_DATABASE_ID`; if you run `npm run deploy:auto-d1`, the script resolves/injects `database_id` automatically.
+- **Branch D1 auto-provision**: `cd cloudflare/worker && npm run deploy:auto-d1` runs `d1 list` and creates DB only if missing. Production branches use `D1_DATABASE_NAME` (default `brf-booking-d1`), others use `booking-pr-<branch-slug>`.
+- **PR-based naming**: in preview mode the deploy script prefers PR IDs and can infer PR number from refs like `refs/pull/123/head` to name D1 as `booking-pr-pr-123`.
+- **Branch fallback**: if branch env vars are missing in Workers Builds, deploy-mode `deploy` falls back to `main` (or first in `PRODUCTION_BRANCHES`), and `versions-upload` falls back to `preview-<commit-sha>`.
+- **PR-based preview naming**: in `versions-upload`, `CF_PAGES_PULL_REQUEST_ID` is prioritized and generates `pr-<id>` for stable preview D1 reuse per PR.
+- **Workers Builds commands**: use `node cloudflare/worker/scripts/deploy-with-branch-d1.mjs --deploy-mode=versions-upload` for preview and `--deploy-mode=deploy` for production.
+- **Vars forwarding in deploy script**: auto-deploy script forwards selected build env vars into runtime `vars` (e.g. `TURNSTILE_SITE_KEY`, `ROOT_DOMAIN`) via generated wrangler config.
+- **Turnstile setup**: set both `TURNSTILE_SITE_KEY` (public) and `TURNSTILE_SECRET` (server verification) in Cloudflare Worker vars/secrets for BRF registration captcha.
+- **Captcha fallback policy**: frontend blocks registration when captcha is not configured; only enable manual token fallback explicitly for local dev (`VITE_CAPTCHA_MANUAL_FALLBACK=true` or `DEV_CAPTCHA_BYPASS=true`).
+- **Temporary no-email mode**: if `RESEND_API_KEY`/`EMAIL_FROM` are missing, registration still succeeds, skips email delivery, and uses temporary admin password `abc123`.
+- **Local D1 migrations**: run `npm run d1:migrate:local` in `cloudflare/worker/` before local API tests.
+- **Frontend unit tests**: run `npx vitest run --dir tests` in `frontend/`. The default `npm run test` / `npx vitest run` will also pick up Playwright spec files which causes an error; use `--dir tests` to scope to unit tests only.
 - **Frontend build**: `npm run build` in `frontend/`.
 - **Playwright E2E tests**: `npm run test:ui` in `frontend/`. Requires `npx playwright install` first. The Playwright config sets `VITE_USE_MOCKS=true` so no backend is needed.
-- **`~/.local/bin` on PATH**: pip installs CLI tools (uvicorn, pytest, etc.) to `~/.local/bin`. Ensure it is on `PATH` (already added in the update script).

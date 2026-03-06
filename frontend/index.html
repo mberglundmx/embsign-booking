@@ -16,16 +16,180 @@
       class="mx-auto flex flex-col"
       :class="isPosMode && !isAuthenticated
         ? 'min-h-screen max-w-none px-0 py-0'
-        : !isAuthenticated
+        : !isAuthenticated && !hasTenantSelected
+          ? 'min-h-screen max-w-4xl justify-center px-4 py-10 sm:px-6'
+          : !isAuthenticated
           ? 'min-h-screen max-w-md justify-center px-4 py-10 sm:px-6'
           : 'max-w-6xl gap-5 px-4 py-6 sm:px-6'"
     >
+      <section
+        class="mx-auto flex w-full max-w-3xl flex-col gap-6 rounded-3xl border border-slate-200/80 bg-white/95 p-8 shadow-xl shadow-slate-900/5 backdrop-blur sm:p-10"
+        x-show="isLandingPage"
+        x-transition
+        data-testid="landing-page"
+      >
+        <div class="space-y-3 text-center">
+          <h1 class="text-3xl font-bold tracking-tight text-slate-900">Bokningsportal för BRF</h1>
+          <p class="text-slate-600">
+            Gratis bokningssystem för BRF:er. Hantera tvättstuga, gästlägenhet och andra resurser i samma plattform.
+          </p>
+        </div>
+
+        <div class="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-[1fr_auto] sm:items-end">
+          <label class="flex flex-col gap-2">
+            <span class="text-sm font-medium text-slate-800">Välj BRF och gå till rätt subdomän</span>
+            <select
+              class="input border-slate-300 bg-white"
+              x-model="landingTenantSelection"
+              data-testid="landing-tenant-select"
+            >
+              <option value="">Välj BRF...</option>
+              <template x-for="tenant in tenantOptions" :key="tenant.id">
+                <option :value="tenant.id" x-text="`${tenant.name} (${tenant.id})`"></option>
+              </template>
+            </select>
+          </label>
+          <button class="btn btn-primary h-11 px-5" @click="goToSelectedTenant" data-testid="landing-go-tenant">
+            Gå till BRF
+          </button>
+        </div>
+        <p class="text-sm text-rose-700" x-show="tenantErrorMessage" x-text="tenantErrorMessage"></p>
+
+        <div class="flex flex-wrap gap-2">
+          <button
+            class="btn btn-secondary px-5 py-2"
+            @click="openRegistration"
+            x-show="!registrationOpen"
+            data-testid="landing-open-register"
+          >
+            Registrera förening
+          </button>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-white p-4" x-show="registrationOpen" x-transition>
+          <p class="text-base font-semibold text-slate-900">Registrera ny BRF</p>
+          <p class="mt-1 text-sm text-slate-600">Steg 1: välj ledig subdomän.</p>
+
+          <div class="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end" x-show="registrationStep === 1">
+            <label class="flex flex-col gap-1">
+              <span class="text-sm font-medium text-slate-700">Föreslagen subdomän</span>
+              <input
+                class="input border-slate-300 bg-white"
+                type="text"
+                x-model="registrationSubdomainInput"
+                placeholder="t.ex. brf-solsidan"
+                data-testid="register-subdomain-input"
+              />
+            </label>
+            <button
+              class="btn btn-primary h-11 px-4"
+              :disabled="tenantLoading"
+              @click="checkRegistrationSubdomain"
+              data-testid="register-subdomain-check"
+            >
+              Kontrollera ledig
+            </button>
+          </div>
+
+          <div class="mt-4 grid gap-3" x-show="registrationStep === 2">
+            <p class="text-sm text-slate-700">
+              Steg 2: fyll i uppgifter. Inloggningsuppgifter skickas via e-post.
+            </p>
+            <label class="flex flex-col gap-1">
+              <span class="text-sm font-medium text-slate-700">Föreningens namn</span>
+              <input
+                class="input border-slate-300 bg-white"
+                type="text"
+                x-model="registrationAssociationName"
+                placeholder="t.ex. BRF Solsidan"
+                data-testid="register-association-name"
+              />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-sm font-medium text-slate-700">E-post</span>
+              <input
+                class="input border-slate-300 bg-white"
+                type="email"
+                x-model="registrationEmailInput"
+                placeholder="styrelsen@exempel.se"
+                data-testid="register-email"
+              />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-sm font-medium text-slate-700">Organisationsnummer</span>
+              <input
+                class="input border-slate-300 bg-white"
+                type="text"
+                x-model="registrationOrgNumberInput"
+                placeholder="7696XXXXXX"
+                data-testid="register-org-number"
+              />
+            </label>
+            <div class="flex flex-col gap-2" x-show="registrationCaptchaEnabled">
+              <span class="text-sm font-medium text-slate-700">Verifiera att du är människa</span>
+              <div
+                class="min-h-20 rounded-xl border border-slate-200 bg-slate-50 p-2"
+                x-ref="turnstileWidget"
+                data-testid="register-turnstile-widget"
+              ></div>
+              <p class="text-xs text-slate-500" x-show="registrationCaptchaLoading">
+                Laddar captcha...
+              </p>
+              <p
+                class="text-xs text-rose-700"
+                x-show="registrationCaptchaLoadError"
+                x-text="registrationCaptchaLoadError"
+              ></p>
+              <p
+                class="text-xs text-slate-500"
+                data-testid="register-captcha-diagnostics"
+                x-show="showCaptchaDiagnostics"
+                x-text="getRegistrationCaptchaStatusLine()"
+              ></p>
+            </div>
+            <label class="flex flex-col gap-1" x-show="!registrationCaptchaEnabled && registrationCaptchaManualFallback">
+              <span class="text-sm font-medium text-slate-700">Captcha-token (fallback)</span>
+              <input
+                class="input border-slate-300 bg-white"
+                type="text"
+                x-model="registrationCaptchaToken"
+                placeholder="Turnstile token"
+                data-testid="register-captcha-token"
+              />
+            </label>
+            <p
+              class="text-xs text-rose-700"
+              x-show="!registrationCaptchaEnabled && !registrationCaptchaManualFallback"
+              x-text="getCaptchaDisabledMessage()"
+            ></p>
+            <div class="flex flex-wrap gap-2">
+              <button
+                class="btn btn-primary px-4 py-2"
+                x-show="registrationCaptchaEnabled || registrationCaptchaManualFallback"
+                :disabled="tenantLoading || registrationCaptchaLoading || (!registrationCaptchaEnabled && !registrationCaptchaManualFallback)"
+                @click="submitRegistration"
+                data-testid="register-submit"
+              >
+                Slutför registrering
+              </button>
+              <button class="btn btn-secondary px-4 py-2" @click="closeRegistration" data-testid="register-cancel">
+                Avbryt
+              </button>
+            </div>
+          </div>
+
+          <p class="mt-3 text-sm text-emerald-700" x-show="registrationAvailabilityMessage" x-text="registrationAvailabilityMessage"></p>
+          <p class="mt-2 text-sm text-rose-700" x-show="registrationErrorMessage" x-text="registrationErrorMessage"></p>
+          <p class="mt-2 text-sm text-emerald-700" x-show="registrationSuccessMessage" x-text="registrationSuccessMessage"></p>
+        </div>
+      </section>
+
       <section
         class="flex flex-col"
         :class="isPosMode
           ? 'h-screen w-screen justify-center bg-white px-6 py-8 text-slate-900 sm:px-12'
           : 'mx-auto w-full max-w-md gap-7 rounded-3xl border border-slate-200/80 bg-white/95 p-8 shadow-xl shadow-slate-900/5 backdrop-blur sm:p-10'"
-        x-show="!isAuthenticated"
+        x-show="!isAuthenticated && hasTenantSelected"
         x-transition
         data-testid="login-card"
       >
@@ -40,6 +204,9 @@
             <p class="text-2xl font-semibold tracking-tight text-slate-900">Välkommen</p>
             <p class="text-sm text-slate-600">
               Logga in för att se bokningar och boka objekt.
+            </p>
+            <p class="text-xs font-semibold text-slate-500">
+              BRF-ID: <span x-text="tenantId"></span>
             </p>
           </div>
         </div>
@@ -94,7 +261,7 @@
               <button
                 class="btn btn-primary w-full"
                 type="submit"
-                :disabled="loading"
+                :disabled="loading || !hasTenantSelected"
                 data-testid="desktop-login"
               >
                 Logga in
@@ -140,7 +307,7 @@
         </div>
 
         <div class="flex flex-col gap-4" x-show="isSetupStep" x-transition data-testid="booking-setup">
-          <div class="card card-compact" data-testid="resource-picker">
+          <div class="card card-compact" x-show="!isAdminMode" data-testid="resource-picker">
             <p class="card-title text-base">Välj bokningsobjekt</p>
             <p class="text-sm text-slate-600">Tryck på ett objekt för att öppna bokningstiderna.</p>
             <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -172,20 +339,117 @@
           </div>
 
           <div class="card card-compact" x-show="isAdminMode" data-testid="admin-booking-target">
-            <p class="card-title text-base text-amber-900">Administratörsverktyg</p>
+            <p class="card-title text-base text-amber-900">Boka åt användare</p>
             <p class="text-xs text-amber-700">
-              Ange användar-ID för vem bokningen ska skapas för.
+              Välj användare och bokningsobjekt innan du går till schema.
             </p>
-            <label class="mt-2 flex flex-col gap-2">
-              <span class="text-sm font-medium text-amber-900">Boka åt användare</span>
-              <input
-                class="input border-amber-300 bg-amber-50/50 focus:bg-white"
-                type="text"
-                placeholder="t.ex. 1-1201"
-                x-model="adminBookingApartmentId"
-                data-testid="admin-target-userid"
-              />
-            </label>
+            <div class="mt-2 grid gap-3 md:grid-cols-2">
+              <label class="flex flex-col gap-2">
+                <span class="text-sm font-medium text-amber-900">Boka åt användare</span>
+                <select
+                  class="input border-amber-300 bg-amber-50/50 focus:bg-white"
+                  x-model="adminBookingApartmentId"
+                  data-testid="admin-target-userid"
+                >
+                  <option value="">Välj användare</option>
+                  <template x-for="user in adminBookingUsers" :key="user.id">
+                    <option :value="user.id" x-text="user.id"></option>
+                  </template>
+                </select>
+              </label>
+              <label class="flex flex-col gap-2">
+                <span class="text-sm font-medium text-amber-900">Bokningsobjekt</span>
+                <select
+                  class="input border-amber-300 bg-amber-50/50 focus:bg-white"
+                  x-model.number="selectedResourceId"
+                  @change="handleAdminResourceSelection"
+                  data-testid="admin-target-resource"
+                >
+                  <option value="">Välj bokningsobjekt</option>
+                  <template x-for="resource in resources" :key="`admin-resource-${resource.id}`">
+                    <option :value="resource.id" x-text="resource.name"></option>
+                  </template>
+                </select>
+              </label>
+            </div>
+            <div class="mt-3">
+              <button class="btn btn-primary px-4 py-2 text-sm" @click="openAdminBookingSchedule">
+                Öppna bokning
+              </button>
+            </div>
+          </div>
+
+          <div class="card card-compact" x-show="isAdminMode" data-testid="admin-axema-import">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <p class="card-title text-base text-amber-900">Importera användare från Axema/Vaka</p>
+                <p class="text-xs text-amber-700">
+                  CSV-importen körs i en separat modal med live-förhandsgranskning.
+                </p>
+              </div>
+              <button class="btn btn-secondary px-3 py-2 text-xs" @click="openAxemaImportModal">
+                Öppna import
+              </button>
+            </div>
+            <p class="mt-2 text-sm text-emerald-700" x-show="adminAxemaMessage" x-text="adminAxemaMessage"></p>
+            <p class="mt-2 text-sm text-rose-700" x-show="adminAxemaError" x-text="adminAxemaError"></p>
+          </div>
+
+          <div class="card card-compact" x-show="isAdminMode" data-testid="admin-resources-editor">
+            <div class="flex items-center justify-between gap-2">
+              <p class="card-title text-base text-amber-900">Hantera bokningsobjekt</p>
+              <button class="btn btn-secondary px-3 py-2 text-xs" @click="openCreateResourceForm">
+                Nytt objekt
+              </button>
+            </div>
+            <p class="text-xs text-amber-700">Redigera regler för typ, bokningsfönster, pris och access.</p>
+            <p class="mt-2 text-sm text-emerald-700" x-show="adminResourceMessage" x-text="adminResourceMessage"></p>
+            <p class="mt-2 text-sm text-rose-700" x-show="adminResourceError" x-text="adminResourceError"></p>
+
+            <div class="mt-3 overflow-x-auto">
+              <table class="min-w-full border-collapse text-sm">
+                <thead>
+                  <tr class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <th class="px-2 py-1">Namn</th>
+                    <th class="px-2 py-1">Typ</th>
+                    <th class="px-2 py-1">Fönster</th>
+                    <th class="px-2 py-1">Pris</th>
+                    <th class="px-2 py-1">Aktiv</th>
+                    <th class="px-2 py-1"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="resource in adminResources" :key="resource.id">
+                    <tr class="border-b border-slate-100">
+                      <td class="px-2 py-2 font-medium" x-text="resource.name"></td>
+                      <td class="px-2 py-2" x-text="resource.booking_type"></td>
+                      <td class="px-2 py-2 text-xs">
+                        <span
+                          x-text="`${resource.min_future_days ?? 0}-${resource.max_future_days ?? 0} d, max ${resource.max_bookings ?? 0}`"
+                        ></span>
+                      </td>
+                      <td class="px-2 py-2 text-xs">
+                        <span
+                          x-text="`${Math.round((resource.price_weekday_cents ?? resource.price_cents ?? 0) / 100)} / ${Math.round((resource.price_weekend_cents ?? resource.price_weekday_cents ?? resource.price_cents ?? 0) / 100)} kr`"
+                        ></span>
+                      </td>
+                      <td class="px-2 py-2" x-text="resource.is_active ? 'Ja' : 'Nej'"></td>
+                      <td class="px-2 py-2">
+                        <div class="flex gap-2">
+                          <button class="btn btn-secondary px-2 py-1 text-xs" @click="openEditResourceForm(resource)">
+                            Redigera
+                          </button>
+                          <button class="btn btn-danger px-2 py-1 text-xs" @click="deactivateResource(resource.id)">
+                            Inaktivera
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
           </div>
 
           <div
@@ -450,6 +714,287 @@
         </div>
       </section>
     </main>
+
+    <div
+      class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 px-4"
+      x-show="adminAxemaModalOpen"
+      x-transition
+      data-testid="admin-axema-modal"
+    >
+      <div class="card w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="card-title">Importera användare från Axema/Vaka</p>
+            <p class="mt-1 text-sm text-slate-500">Förhandsgranskning uppdateras live när du ändrar regler.</p>
+          </div>
+          <button class="text-slate-400" @click="closeAxemaImportModal" aria-label="Stäng">✕</button>
+        </div>
+
+        <div class="mt-3 grid gap-3 md:grid-cols-2">
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">CSV-fil</span>
+            <input class="input" type="file" accept=".csv,text/csv" @change="onAxemaCsvSelected" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Valda admingrupper</span>
+            <select
+              class="input min-h-[7rem]"
+              multiple
+              x-model="adminAxemaRules.admin_access_groups"
+              @change="onAxemaRulesChanged"
+            >
+              <template x-for="group in adminAxemaAvailableAccessGroups" :key="`axema-group-${group}`">
+                <option :value="group" x-text="group"></option>
+              </template>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Källfält för lägenhet</span>
+            <select class="input" x-model="adminAxemaRules.apartment_source_field" @change="onAxemaRulesChanged">
+              <template x-for="field in getAxemaFieldOptions(adminAxemaRules.apartment_source_field)" :key="`apartment-source-${field}`">
+                <option :value="field" x-text="field"></option>
+              </template>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">UID-fält</span>
+            <select class="input" x-model="adminAxemaRules.uid_field" @change="onAxemaRulesChanged">
+              <template x-for="field in getAxemaFieldOptions(adminAxemaRules.uid_field)" :key="`uid-source-${field}`">
+                <option :value="field" x-text="field"></option>
+              </template>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Behörighetsgrupp-fält</span>
+            <select class="input" x-model="adminAxemaRules.access_group_field" @change="onAxemaRulesChanged">
+              <template x-for="field in getAxemaFieldOptions(adminAxemaRules.access_group_field)" :key="`group-source-${field}`">
+                <option :value="field" x-text="field"></option>
+              </template>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Aktiv-statusfält</span>
+            <select class="input" x-model="adminAxemaRules.status_field" @change="onAxemaRulesChanged">
+              <template x-for="field in getAxemaFieldOptions(adminAxemaRules.status_field)" :key="`status-source-${field}`">
+                <option :value="field" x-text="field"></option>
+              </template>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Regex för hus/trappuppgång</span>
+            <input class="input" type="text" x-model="adminAxemaRules.house_regex" @input="onAxemaRulesChanged" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Regex för lägenhets-ID</span>
+            <input class="input" type="text" x-model="adminAxemaRules.apartment_regex" @input="onAxemaRulesChanged" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Aktiv-statusvärde</span>
+            <input class="input" type="text" x-model="adminAxemaRules.active_status_value" @input="onAxemaRulesChanged" />
+          </label>
+        </div>
+
+        <label class="mt-3 flex flex-col gap-1">
+          <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">CSV-innehåll</span>
+          <textarea
+            class="input min-h-[8rem] py-2"
+            x-model="adminAxemaCsvText"
+            @input="onAxemaCsvInputChanged"
+            placeholder="Klistra in CSV-rader här om du inte laddar fil."
+          ></textarea>
+        </label>
+
+        <div class="mt-3 rounded-xl border border-slate-200 p-3" x-show="adminAxemaDiff">
+          <p class="text-sm font-semibold text-slate-800">Diff mot databasen</p>
+          <p class="mt-1 text-xs text-slate-600">
+            Nya: <span class="font-semibold" x-text="adminAxemaDiff?.summary?.new_count ?? 0"></span>,
+            Ändrade: <span class="font-semibold" x-text="adminAxemaDiff?.summary?.changed_count ?? 0"></span>,
+            Borttagna: <span class="font-semibold" x-text="adminAxemaDiff?.summary?.removed_count ?? 0"></span>,
+            Oförändrade: <span class="font-semibold" x-text="adminAxemaDiff?.summary?.unchanged_count ?? 0"></span>
+          </p>
+          <div class="mt-2 flex flex-wrap gap-4 text-sm text-slate-700">
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" x-model="adminAxemaActionAddNew" />
+              <span>Lägg till nya</span>
+            </label>
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" x-model="adminAxemaActionUpdateExisting" />
+              <span>Uppdatera ändrade</span>
+            </label>
+            <label class="inline-flex items-center gap-2">
+              <input type="checkbox" x-model="adminAxemaActionRemoveMissing" />
+              <span>Ta bort saknade</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="mt-3 overflow-x-auto" x-show="getAxemaPreviewRowsWithActions().length">
+          <table class="min-w-full border-collapse text-xs">
+            <thead>
+              <tr class="border-b border-slate-200 text-left text-slate-500">
+                <th class="px-2 py-1">Rad</th>
+                <th class="px-2 py-1">UID</th>
+                <th class="px-2 py-1">Källa</th>
+                <th class="px-2 py-1">Hus</th>
+                <th class="px-2 py-1">Lägenhet</th>
+                <th class="px-2 py-1">Admin</th>
+                <th class="px-2 py-1">Action</th>
+                <th class="px-2 py-1">Ignorerad</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="row in getAxemaPreviewRowsWithActions()" :key="`${row.preview_type}-${row.line}-${row.uid}`">
+                <tr class="border-b border-slate-100">
+                  <td class="px-2 py-1" x-text="row.line"></td>
+                  <td class="px-2 py-1 font-mono" x-text="row.uid"></td>
+                  <td class="px-2 py-1" x-text="row.source_value"></td>
+                  <td class="px-2 py-1" x-text="row.house"></td>
+                  <td class="px-2 py-1" x-text="row.apartment_id"></td>
+                  <td class="px-2 py-1" x-text="row.is_admin ? 'Ja' : 'Nej'"></td>
+                  <td class="px-2 py-1">
+                    <span
+                      class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                      :class="getAxemaActionPillClass(getAxemaActionLabel(row))"
+                      x-text="getAxemaActionLabel(row)"
+                    ></span>
+                  </td>
+                  <td class="px-2 py-1 text-rose-700" x-text="row.ignored_reason"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="mt-2 text-xs text-slate-500" x-show="adminAxemaCsvFileName">
+          Fil: <span class="font-semibold" x-text="adminAxemaCsvFileName"></span>
+        </p>
+        <div class="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2" x-show="adminAxemaLoading || adminAxemaImportProgress.total > 0">
+          <div class="flex items-center justify-between text-xs text-slate-600">
+            <span x-text="adminAxemaLoading ? 'Import pågår...' : 'Importstatus'"></span>
+            <span>
+              <span x-text="adminAxemaImportProgress.processed ?? 0"></span> /
+              <span x-text="adminAxemaImportProgress.total ?? 0"></span>
+            </span>
+          </div>
+          <div class="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+            <div
+              class="h-2 bg-brand-600 transition-all duration-300"
+              :style="`width: ${getAxemaProgressPercent()}%`"
+            ></div>
+          </div>
+        </div>
+        <p class="mt-2 text-sm text-emerald-700" x-show="adminAxemaMessage" x-text="adminAxemaMessage"></p>
+        <p class="mt-2 text-sm text-rose-700" x-show="adminAxemaError" x-text="adminAxemaError"></p>
+
+        <div class="mt-4 flex flex-wrap justify-end gap-2">
+          <button class="btn btn-secondary" @click="closeAxemaImportModal">Stäng</button>
+          <button class="btn btn-primary" @click="applyAxemaImport" :disabled="adminAxemaLoading">
+            Importera
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 px-4"
+      x-show="adminResourceModalOpen"
+      x-transition
+      data-testid="admin-resource-modal"
+    >
+      <div class="card w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="card-title" x-text="adminResourceForm.id ? 'Redigera bokningsobjekt' : 'Nytt bokningsobjekt'"></p>
+            <p class="mt-1 text-sm text-slate-500">Konfigurera regler för bokning, pris och access.</p>
+          </div>
+          <button class="text-slate-400" @click="closeResourceModal" aria-label="Stäng">✕</button>
+        </div>
+
+        <div class="mt-3 grid gap-3 md:grid-cols-2">
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Namn</span>
+            <input class="input" type="text" x-model="adminResourceForm.name" placeholder="Namn" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Kategori</span>
+            <input class="input" type="text" x-model="adminResourceForm.category" placeholder="Kategori" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Typ</span>
+            <select class="input" x-model="adminResourceForm.booking_type">
+              <option value="time-slot">time-slot</option>
+              <option value="full-day">full-day</option>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Slot-längd (min)</span>
+            <input class="input" type="number" min="1" x-model.number="adminResourceForm.slot_duration_minutes" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Starttimme</span>
+            <input class="input" type="number" min="0" max="23" x-model.number="adminResourceForm.slot_start_hour" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Sluttimme</span>
+            <input class="input" type="number" min="1" max="24" x-model.number="adminResourceForm.slot_end_hour" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Max dagar framåt</span>
+            <input class="input" type="number" min="1" x-model.number="adminResourceForm.max_future_days" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Min dagar framåt</span>
+            <input class="input" type="number" min="0" x-model.number="adminResourceForm.min_future_days" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Max bokningar</span>
+            <input class="input" type="number" min="1" x-model.number="adminResourceForm.max_bookings" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Pris vardag (kr)</span>
+            <input class="input" type="number" min="0" step="1" x-model.number="adminResourceForm.price_weekday" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Pris helg (kr)</span>
+            <input class="input" type="number" min="0" step="1" x-model.number="adminResourceForm.price_weekend" />
+          </label>
+          <div class="flex items-end gap-4 pb-2">
+            <label class="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" x-model="adminResourceForm.is_billable" />
+              <span>Debiterbar</span>
+            </label>
+            <label class="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" x-model="adminResourceForm.is_active" />
+              <span>Aktiv</span>
+            </label>
+          </div>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Allow hus</span>
+            <select class="input min-h-[7rem]" multiple x-model="adminResourceForm.allow_houses">
+              <template x-for="house in adminResourceHouseOptions" :key="`allow-house-${house}`">
+                <option :value="house" x-text="house"></option>
+              </template>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Deny lägenhet</span>
+            <select class="input min-h-[7rem]" multiple x-model="adminResourceForm.deny_apartment_ids">
+              <template x-for="apartment in adminResourceApartmentOptions" :key="`deny-apartment-${apartment}`">
+                <option :value="apartment" x-text="apartment"></option>
+              </template>
+            </select>
+          </label>
+        </div>
+
+        <p class="mt-2 text-sm text-rose-700" x-show="adminResourceError" x-text="adminResourceError"></p>
+        <div class="mt-4 flex flex-wrap justify-end gap-2">
+          <button class="btn btn-secondary" @click="closeResourceModal">Avbryt</button>
+          <button class="btn btn-primary" @click="saveResourceForm" :disabled="adminResourceSaving">
+            Spara objekt
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div
       class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 px-4"

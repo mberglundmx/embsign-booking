@@ -7,11 +7,16 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: true
+      }
+    }
   },
   preview: {
-    // Railway healthcheck uses the public service domain as Host-header.
-    // Allow all hosts in preview mode so container health checks pass.
+    // Allow all hosts in preview mode for Cloud preview URLs and local container checks.
     allowedHosts: true
   },
   test: {
